@@ -5,13 +5,11 @@ A PyTorch implementation of neural Control Barrier Functions (CBFs) and Control 
 ## Overview
 
 This framework learns safety and feasibility constraints from data to enable safe robot control over long horizons. It combines three key components:
-
 - **Neural CBFs** - Learn safety constraints to avoid unsafe states
 - **Neural CLFs** - Learn feasibility constraints to reach goal states  
 - **Ensemble Dynamics** - Learn system dynamics with uncertainty quantification
 
 ## Key Features
-
 - **Real-time Safety**: CBF-CLF controller filters unsafe actions
 - **Uncertainty-Aware**: Ensemble models provide epistemic uncertainty
 - **Minimal Integration**: Drop-in safety layer for existing policies
@@ -29,7 +27,6 @@ python example.py
 ```
 
 ## Usage
-
 ```python
 from src import create_trainer
 
@@ -69,6 +66,8 @@ for step in range(max_steps):
     )
 ```
 
+
+
 ## Architecture
 
 ```
@@ -80,15 +79,8 @@ Dynamics Model ← Uncertainty Estimation
 ```
 
 ## Components
-
 - `cbf.py` - Control Barrier Functions for safety
 - `clf.py` - Control Lyapunov Functions for feasibility  
 - `models.py` - Ensemble dynamics learning
 - `main_trainer.py` - Integrated training framework
 - `example.py` - Usage demonstration
-
-## Requirements
-
-- PyTorch ≥ 2.0
-- NumPy ≥ 1.21
-- SciPy ≥ 1.7

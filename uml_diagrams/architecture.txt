@@ -1,0 +1,50 @@
+Long-Horizon Safe Planning Architecture
+=====================================
+
+┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────┐
+│   Environment   │───▶│  SafeFeasibleTrainer │───▶│   Controller    │
+│                 │    │                      │    │                 │
+│ • Isaac Gym     │    │ • add_transition()   │    │ • filter_action │
+│ • Robot State   │    │ • get_safe_action()  │    │ • safety check  │
+│ • Actions       │    │ • evaluate_safety()  │    │ • feasibility   │
+└─────────────────┘    └──────────────────────┘    └─────────────────┘
+         ▲                         │                         │
+         │                         ▼                         │
+         │              ┌──────────────────────┐             │
+         │              │    Data Storage      │             │
+         │              │                      │             │
+         │              │ • ReplayBuffer       │             │
+         │              │ • Labeled States     │             │
+         │              │ • Transitions        │             │
+         │              └──────────────────────┘             │
+         │                         │                         │
+         └─────────────────────────┼─────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    │              │              │
+                    ▼              ▼              ▼
+         ┌─────────────────┐ ┌─────────────┐ ┌─────────────────┐
+         │   Safety CBF    │ │ Feasibility │ │   Dynamics      │
+         │                 │ │    CLF      │ │                 │
+         │ • EnsembleCBF   │ │ • EnsembleCLF│ │ • EnsembleDyn   │
+         │ • 3x CBFNetwork │ │ • 3x CLFNet  │ │ • 5x DynNetwork │
+         │ • h(s) ≥ 0      │ │ • V(s) = 0   │ │ • Uncertainty   │
+         │   for safe      │ │   for goals  │ │   Estimation    │
+         └─────────────────┘ └─────────────┘ └─────────────────┘
+
+Data Flow:
+----------
+1. Environment → Trainer: observations, rewards, done flags
+2. Trainer → Controller: current state, proposed action  
+3. Controller → CBF/CLF/Dynamics: constraint checking
+4. Controller → Environment: filtered safe action
+5. Trainer → Networks: training data (states, actions, labels)
+
+Key Components:
+--------------
+• SafeFeasibleTrainer: Main orchestrator
+• EnsembleCBF: Safety constraints (h(s) ≥ 0)
+• EnsembleCLF: Feasibility constraints (V(s) = 0 at goals)
+• EnsembleDynamics: System dynamics with uncertainty
+• CBFCLFController: Real-time action filtering
+• ReplayBuffer: Experience storage and sampling

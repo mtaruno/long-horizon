@@ -335,7 +335,7 @@ class ReplayBuffer:
             'actions': torch.FloatTensor([t['action'] for t in batch]),
             'next_states': torch.FloatTensor([t['next_state'] for t in batch]),
             'rewards': torch.FloatTensor([t['reward'] for t in batch]),
-            'dones': torch.BoolTensor([t['done'] for t in batch])
+            'dones': torch.tensor([bool(t['done']) for t in batch], dtype=torch.bool)
         }
         
     def __len__(self) -> int:

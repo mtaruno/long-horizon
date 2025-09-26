@@ -4,17 +4,17 @@ Example usage of the safe and feasible long-horizon planning framework.
 
 import torch
 import numpy as np
-from src.main_trainer import create_trainer, TrainingConfig
+from src import create_trainer, Transition
 
 def main():
-    """Example training loop."""
+    """Example training loop using new modular API."""
     
     # Configuration
     state_dim = 4  # Example: 2D position + 2D velocity
     action_dim = 2  # Example: 2D acceleration
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Create trainer
+    # Create trainer using factory function
     trainer = create_trainer(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -52,8 +52,8 @@ def main():
             is_goal = np.linalg.norm(next_state) < 0.1  # Goal if near origin
             done = is_goal or step == episode_length - 1
             
-            # Add transition to trainer
-            trainer.add_transition(
+            # Create transition using data model
+            transition = Transition(
                 state=state,
                 action=action,
                 next_state=next_state,
@@ -63,6 +63,9 @@ def main():
                 is_goal=is_goal
             )
             
+            # Add transition to trainer
+            trainer.add_transition(transition)
+            
             state = next_state
             
             if done:
@@ -71,15 +74,17 @@ def main():
         # Log progress
         if episode % 10 == 0:
             summary = trainer.get_training_summary()
-            print(f"Episode {episode}: {summary}")
+            print(f"Episode {episode}: Step {summary.step_count}, "
+                  f"Buffer size: {summary.buffer_size}")
             
             # Evaluate on random batch
             if trainer.step_count > 100:
                 test_states = torch.randn(32, state_dim).to(device)
                 test_actions = torch.randn(32, action_dim).to(device)
                 
-                metrics = trainer.evaluate_safety_feasibility(test_states, test_actions)
-                print(f"Safety metrics: {metrics}")
+                metrics = trainer.evaluate(test_states, test_actions)
+                print(f"Safety rate: {metrics.safety_rate:.3f}, "
+                      f"Goal proximity: {metrics.goal_proximity_rate:.3f}")
     
     # Save final model
     trainer.save_checkpoint("checkpoint.pth")

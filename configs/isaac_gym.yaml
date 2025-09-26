@@ -1,0 +1,59 @@
+state_dim: 13  # Typical humanoid state
+action_dim: 12  # Typical humanoid actions
+
+cbf:
+  network:
+    hidden_dims: [512, 512, 256]
+    activation: "relu"
+    dropout: 0.1
+    layer_norm: true
+  alpha: 0.05  # More conservative for complex robots
+  num_models: 5
+  loss_weights:
+    safe: 2.0  # Higher weight on safety
+    unsafe: 3.0
+    constraint: 1.0
+
+clf:
+  network:
+    hidden_dims: [512, 512, 256]
+    activation: "relu"
+    dropout: 0.1
+    layer_norm: true
+  beta: 0.05
+  delta: 0.005
+  num_models: 5
+  loss_weights:
+    goal: 1.0
+    constraint: 1.5
+    positive: 0.1
+
+dynamics:
+  network:
+    hidden_dims: [1024, 1024, 512]
+    activation: "relu"
+    dropout: 0.1
+    layer_norm: true
+  num_models: 7
+  residual: true
+  output_activation: null
+
+training:
+  batch_size: 512  # Larger batches for parallel envs
+  learning_rate: 0.0005
+  max_epochs: 5000
+  cbf_update_freq: 5  # More frequent updates
+  clf_update_freq: 5
+  model_update_freq: 2
+  buffer_capacity: 500000  # Larger buffer
+  log_freq: 50
+  save_freq: 500
+
+controller:
+  safety_margin: 0.05  # Tighter margins
+  feasibility_margin: 0.05
+  use_qp_solver: true  # Enable for complex constraints
+
+device: "cuda"
+experiment_name: "isaac_gym_safe_planning"
+seed: 42
