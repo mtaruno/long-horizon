@@ -471,7 +471,7 @@ class CBFCLFController:
             clf_violations = self.clf.clf_constraint(states, next_states)
             infeasible_mask = clf_violations > feasibility_margin
             
-            # For violated constraints, we would need to solve QP
+            # TODO: For violated constraints, we would need to solve QP
             # For now, return original actions (placeholder)
             # In practice, implement quadratic programming solver
             

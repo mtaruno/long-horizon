@@ -46,7 +46,7 @@ def main():
             summary = trainer.get_training_summary()
             print(f"Episode {episode}: {summary.step_count} steps")
     
-    print("Configuration-driven training completed!")
+    print("Configuration-driven training completed! This is what we would like to use.")
 
 if __name__ == "__main__":
     main()

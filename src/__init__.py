@@ -26,6 +26,13 @@ from .clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
 from .models import DynamicsNetwork, EnsembleDynamics, ReplayBuffer, AdaptiveModelLearner
 from .main_trainer import SafeFeasibleTrainer
 
+# Dataset generation
+from .dataset import (
+    DatasetGenerator, SimulationDatasetGenerator, RuleBasedDatasetGenerator,
+    ExpertDatasetGenerator, DatasetManager, create_warehouse_dataset,
+    create_navigation_dataset, create_mixed_dataset
+)
+
 __version__ = "0.1.0"
 
 __all__ = [
@@ -64,4 +71,14 @@ __all__ = [
     "EnsembleDynamics",
     "ReplayBuffer",
     "AdaptiveModelLearner",
+    
+    # Dataset generation
+    "DatasetGenerator",
+    "SimulationDatasetGenerator", 
+    "RuleBasedDatasetGenerator",
+    "ExpertDatasetGenerator",
+    "DatasetManager",
+    "create_warehouse_dataset",
+    "create_navigation_dataset",
+    "create_mixed_dataset",
 ]
