@@ -221,55 +221,6 @@ def load_dataset(filename="warehouse_robot_dataset"):
     
     return data['transitions'], data['statistics'], data['metadata']
 
-def validate_dataset_quality(dataset, stats):
-    """Validate dataset meets quality requirements."""
-    
-    print("Validating dataset quality...")
-    
-    # Check basic requirements
-    assert len(dataset) > 1000, "Dataset too small"
-    assert stats['safety_ratio'] > 0.7, "Not enough safe examples"
-    assert stats['safety_ratio'] < 0.98, "Not enough unsafe examples"
-    assert stats['goal_ratio'] > 0.008, "Not enough goal examples"
-    
-    # Check data diversity
-    positions = np.array([t.state[:2] for t in dataset])
-    velocities = np.array([t.state[2:] for t in dataset])
-    actions = np.array([t.action for t in dataset])
-    
-    # Position coverage
-    pos_std = np.std(positions, axis=0)
-    assert pos_std[0] > 2.0, "Insufficient x-position diversity"
-    assert pos_std[1] > 2.0, "Insufficient y-position diversity"
-    
-    # Velocity diversity
-    vel_std = np.std(velocities, axis=0)
-    assert vel_std[0] > 0.1, "Insufficient x-velocity diversity"
-    assert vel_std[1] > 0.1, "Insufficient y-velocity diversity"
-    
-    # Action diversity
-    action_std = np.std(actions, axis=0)
-    assert action_std[0] > 0.2, "Insufficient x-action diversity"
-    assert action_std[1] > 0.2, "Insufficient y-action diversity"
-    
-    # Check physics consistency
-    physics_errors = []
-    for t in dataset[:100]:  # Sample check
-        dt = 0.1
-        expected_vel = t.state[2:] + t.action * dt
-        expected_pos = t.state[:2] + expected_vel * dt
-        
-        vel_error = np.linalg.norm(t.next_state[2:] - expected_vel)
-        pos_error = np.linalg.norm(t.next_state[:2] - expected_pos)
-        
-        physics_errors.append(vel_error + pos_error)
-    
-    avg_physics_error = np.mean(physics_errors)
-    assert avg_physics_error < 0.5, f"Physics inconsistency too high: {avg_physics_error}"
-    
-    print("✓ Dataset quality validation passed!")
-    
-    return True
 
 def main():
     """Main dataset generation script."""

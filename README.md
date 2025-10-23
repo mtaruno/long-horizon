@@ -6,7 +6,7 @@ A PyTorch implementation of neural Control Barrier Functions (CBFs) and Control 
 
 This framework learns safety and feasibility constraints from data to enable safe robot control over long horizons. It combines three key components:
 - **Neural CBFs** - Learn safety constraints to avoid unsafe states
-- **Neural CLFs** - Learn feasibility constraints to reach goal states  
+- **Neural CLFs** - Learn feasibility constraints to reach goal states
 - **Ensemble Dynamics** - Learn system dynamics with uncertainty quantification
 
 ## Key Features

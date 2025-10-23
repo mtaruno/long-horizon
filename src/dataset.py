@@ -196,103 +196,109 @@ class RuleBasedDatasetGenerator(DatasetGenerator):
             
         return reward
 
-class ExpertDatasetGenerator(DatasetGenerator):
-    """Generate dataset from expert demonstrations."""
-    
-    def __init__(
-        self,
-        expert_trajectories: List[List[Tuple[np.ndarray, np.ndarray]]],
-        labeling_function: Callable[[np.ndarray, np.ndarray, np.ndarray], Tuple[bool, bool]]
-    ):
-        self.expert_trajectories = expert_trajectories
-        self.labeling_function = labeling_function
-        
-    def generate_transitions(self, num_transitions: int) -> List[Transition]:
-        """Generate transitions from expert demonstrations."""
-        transitions = []
-        
-        while len(transitions) < num_transitions:
-            # Sample random trajectory
-            trajectory = random.choice(self.expert_trajectories)
-            
-            # Sample random transition from trajectory
-            if len(trajectory) < 2:
-                continue
-                
-            idx = random.randint(0, len(trajectory) - 2)
-            state, action = trajectory[idx]
-            next_state, _ = trajectory[idx + 1]
-            
-            # Apply labeling function
-            is_safe, is_goal = self.labeling_function(state, action, next_state)
-            
-            transition = Transition(
-                state=state.copy(),
-                action=action.copy(),
-                next_state=next_state.copy(),
-                reward=0.0,  # Not used in expert demos
-                done=is_goal,
-                is_safe=is_safe,
-                is_goal=is_goal
-            )
-            
-            transitions.append(transition)
-            
-        return transitions[:num_transitions]
-
-class DatasetManager:
-    """Manage and combine multiple dataset sources."""
+class WarehouseEnvironment(DatasetGenerator):
+    """Warehouse environment matching the dataset."""
     
     def __init__(self):
-        self.generators = []
+        self.bounds = (12.0, 10.0)  # 12m x 10m warehouse
         
-    def add_generator(self, generator: DatasetGenerator, weight: float = 1.0):
-        """Add a dataset generator with specified weight."""
-        self.generators.append((generator, weight))
-        
-    def generate_balanced_dataset(
-        self, 
-        total_transitions: int,
-        min_unsafe_ratio: float = 0.1,
-        min_goal_ratio: float = 0.05
-    ) -> List[Transition]:
-        """Generate balanced dataset with specified ratios."""
-        
-        # Calculate transitions per generator
-        total_weight = sum(weight for _, weight in self.generators)
-        transitions_per_gen = [
-            int(total_transitions * weight / total_weight) 
-            for _, weight in self.generators
+        # Obstacles matching the dataset
+        self.obstacles = [
+            {"center": np.array([2.0, 3.0]), "radius": 0.8},
+            {"center": np.array([2.0, 7.0]), "radius": 0.8},
+            {"center": np.array([5.0, 2.0]), "radius": 0.6},
+            {"center": np.array([5.0, 5.0]), "radius": 0.6},
+            {"center": np.array([5.0, 8.0]), "radius": 0.6},
+            {"center": np.array([8.0, 3.5]), "radius": 0.7},
+            {"center": np.array([8.0, 6.5]), "radius": 0.7},
+            {"center": np.array([4.0, 9.0]), "radius": 0.3},
+            {"center": np.array([9.0, 1.0]), "radius": 0.3},
+            {"center": np.array([1.0, 1.0]), "radius": 0.4},
+            {"center": np.array([11.0, 9.0]), "radius": 0.4},
         ]
         
-        # Generate transitions from each generator
-        all_transitions = []
-        for (generator, _), num_trans in zip(self.generators, transitions_per_gen):
-            transitions = generator.generate_transitions(num_trans)
-            all_transitions.extend(transitions)
-            
-        # Analyze current distribution
-        safe_count = sum(1 for t in all_transitions if t.is_safe)
-        unsafe_count = len(all_transitions) - safe_count
-        goal_count = sum(1 for t in all_transitions if t.is_goal)
+        # Goal regions matching the dataset
+        self.goals = [
+            {"center": np.array([10.5, 8.5]), "radius": 0.4},  # Loading dock 1
+            {"center": np.array([10.5, 1.5]), "radius": 0.4},  # Loading dock 2
+            {"center": np.array([1.5, 9.0]), "radius": 0.3},   # Pickup station 1
+            {"center": np.array([6.5, 0.5]), "radius": 0.3},   # Pickup station 2
+        ]
         
-        # Add more unsafe transitions if needed
-        target_unsafe = max(int(total_transitions * min_unsafe_ratio), unsafe_count)
-        if unsafe_count < target_unsafe:
-            needed_unsafe = target_unsafe - unsafe_count
-            # Generate more transitions and filter for unsafe ones
-            # (Implementation would depend on specific generators)
+    def step(self, state: np.ndarray, action: np.ndarray) -> tuple:
+        """Simulate one environment step.
+        Why 0.1? Because time step is 0.1s in dataset.
+        Args:
+            state (np.ndarray): Current state [x, y, vx, vy].
+            action (np.ndarray): Action [ax, ay].
+        Returns:
+            next_state (np.ndarray): Next state after action.
+            reward (float): Reward obtained.
+            done (bool): Whether episode has ended.
+            sensors (Dict): Sensor readings.    
+        """
+        # Physics integration
+        new_vel = state[2:] + action * 0.1
+        new_pos = state[:2] + new_vel * 0.1
+        new_state = np.concatenate([new_pos, new_vel])
+        
+        # Check collisions
+        collision = self._check_collision(new_pos)
+        
+        # Check bounds
+        out_of_bounds = (new_pos[0] < 0 or new_pos[0] > self.bounds[0] or
+                        new_pos[1] < 0 or new_pos[1] > self.bounds[1])
+        
+        # Compute reward
+        min_goal_distance = min(
+            np.linalg.norm(new_pos - goal["center"]) 
+            for goal in self.goals
+        )
+        reward = -min_goal_distance
+        
+        if collision or out_of_bounds:
+            reward -= 10.0
+        
+        # Check goal
+        goal_reached = any(
+            np.linalg.norm(new_pos - goal["center"]) < goal["radius"]
+            for goal in self.goals
+        )
+        if goal_reached:
+            reward += 50.0
             
-        # Add more goal transitions if needed
-        target_goal = max(int(total_transitions * min_goal_ratio), goal_count)
-        if goal_count < target_goal:
-            needed_goal = target_goal - goal_count
-            # Generate more transitions and filter for goal ones
-            # (Implementation would depend on specific generators)
-            
-        # Shuffle and return
-        random.shuffle(all_transitions)
-        return all_transitions[:total_transitions]
+        # Generate sensor data
+        sensors = self._get_sensor_data(new_pos)
+        
+        return new_state, reward, goal_reached or collision, sensors
+    
+    def _check_collision(self, pos: np.ndarray) -> bool:
+        """Check collision with obstacles."""
+        for obstacle in self.obstacles:
+            if np.linalg.norm(pos - obstacle["center"]) < obstacle["radius"]:
+                return True
+        return False
+    
+    def _get_sensor_data(self, pos: np.ndarray) -> Dict:
+        """Generate sensor readings.
+        """
+        min_distance = float('inf')
+        closest_obstacle_dir = np.array([1.0, 0.0])
+        
+        for obstacle in self.obstacles:
+            distance = np.linalg.norm(pos - obstacle["center"]) - obstacle["radius"]
+            if distance < min_distance:
+                min_distance = distance
+                closest_obstacle_dir = (obstacle["center"] - pos) / (np.linalg.norm(obstacle["center"] - pos) + 1e-6)
+        
+        return {
+            "obstacle_distance": min_distance,
+            "obstacle_direction": closest_obstacle_dir
+        }
+    
+    def generate_transitions(self, num_transitions):
+
+
     
     def get_dataset_statistics(self, transitions: List[Transition]) -> Dict:
         """Get statistics about the dataset."""

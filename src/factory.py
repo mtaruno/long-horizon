@@ -1,8 +1,6 @@
 """
 Factory functions for creating framework components with proper abstractions.
 """
-
-import torch
 from typing import Optional
 from .config import SafePlanningConfig, get_default_config, get_isaac_gym_config
 from .types import Transition
@@ -12,7 +10,6 @@ from .main_trainer import SafeFeasibleTrainer
 
 class SafePlanningFactory:
     """Factory for creating safe planning components."""
-    
     @staticmethod
     def create_trainer(
         state_dim: int,
@@ -35,8 +32,8 @@ class SafePlanningFactory:
             Configured trainer instance
         """
         if config is None:
-            config = get_default_config(state_dim, action_dim, **kwargs)
-        
+            config = get_default_config(state_dim, action_dim, **kwargs) 
+
         if device is not None:
             config.device = device
             
