@@ -291,14 +291,18 @@ class WarehouseEnvironment(DatasetGenerator):
                 min_distance = distance
                 closest_obstacle_dir = (obstacle["center"] - pos) / (np.linalg.norm(obstacle["center"] - pos) + 1e-6)
         
+        collision = self._check_collision(pos)
+        
         return {
             "obstacle_distance": min_distance,
-            "obstacle_direction": closest_obstacle_dir
+            "obstacle_direction": closest_obstacle_dir,
+            "collision": collision
         }
     
     def generate_transitions(self, num_transitions):
-
-
+        """Not implemented for environment."""
+        raise NotImplementedError("Use step() method instead")
+    
     
     def get_dataset_statistics(self, transitions: List[Transition]) -> Dict:
         """Get statistics about the dataset."""
@@ -315,6 +319,42 @@ class WarehouseEnvironment(DatasetGenerator):
             'goal_ratio': goal_count / total if total > 0 else 0,
             'avg_reward': np.mean([t.reward for t in transitions]) if total > 0 else 0
         }
+
+
+class DatasetManager:
+    """Manage multiple dataset generators."""
+    
+    def __init__(self):
+        self.generators = []
+        self.weights = []
+    
+    def add_generator(self, generator: DatasetGenerator, weight: float = 1.0):
+        self.generators.append(generator)
+        self.weights.append(weight)
+    
+    def generate_balanced_dataset(
+        self,
+        total_transitions: int,
+        min_unsafe_ratio: float = 0.15,
+        min_goal_ratio: float = 0.05
+    ) -> List[Transition]:
+        """Generate balanced dataset."""
+        if not self.generators:
+            raise ValueError("No generators added")
+        
+        # Normalize weights
+        total_weight = sum(self.weights)
+        normalized_weights = [w / total_weight for w in self.weights]
+        
+        # Generate from each generator
+        all_transitions = []
+        for gen, weight in zip(self.generators, normalized_weights):
+            n = int(total_transitions * weight)
+            transitions = gen.generate_transitions(n)
+            all_transitions.extend(transitions)
+        
+        return all_transitions[:total_transitions]
+
 
 # ===== PREDEFINED DATASET CONFIGURATIONS =====
 

@@ -13,7 +13,8 @@ from .config import SafePlanningConfig
 from .types import Transition, SafetyMetrics, TrainingMetrics, StateArray, ActionArray
 from .interfaces import TrainerInterface
 from .cbf import EnsembleCBF, CBFTrainer
-from .clf import EnsembleCLF, CLFTrainer, CBFCLFController
+from .clf import EnsembleCLF, CLFTrainer
+from .controller import CBFCLFController
 from .models import EnsembleDynamics, AdaptiveModelLearner, ReplayBuffer
 
 

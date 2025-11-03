@@ -22,14 +22,15 @@ from .factory import (
 
 # Implementation classes (for advanced users)
 from .cbf import CBFNetwork, EnsembleCBF, CBFTrainer
-from .clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
+from .clf import CLFNetwork, EnsembleCLF, CLFTrainer
+from .controller import CBFCLFController
 from .models import DynamicsNetwork, EnsembleDynamics, ReplayBuffer, AdaptiveModelLearner
 from .main_trainer import SafeFeasibleTrainer
 
 # Dataset generation
 from .dataset import (
     DatasetGenerator, SimulationDatasetGenerator, RuleBasedDatasetGenerator,
-    ExpertDatasetGenerator, DatasetManager, create_warehouse_dataset,
+    DatasetManager, create_warehouse_dataset,
     create_navigation_dataset, create_mixed_dataset
 )
 

@@ -11,11 +11,9 @@ import torch.nn.functional as F
 from typing import Tuple, Optional, Dict, Any
 import numpy as np
 
-
 class CBFNetwork(nn.Module):
     """
     Neural Control Barrier Function.
-    
     Learns h_φ: S → R such that:
     (i)   h_φ(s) ≥ 0 if s ∈ S^+  (safe states)
     (ii)  h_φ(s) < 0 if s ∈ S^-   (unsafe states)  
