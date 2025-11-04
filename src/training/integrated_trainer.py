@@ -70,7 +70,6 @@ class FSMCBFCLFTrainer:
     def training_episode(self, env, max_steps: int = 1000) -> Dict:
         """
         Execute one training episode following Algorithm 2.
-        
         Args:
             env: Environment with reset(), step(action) interface
             max_steps: Maximum steps per episode
@@ -234,20 +233,22 @@ class FSMCBFCLFTrainer:
         self.clf_opt.step()
     
     def _update_policy(self):
-        """Update policy: L_actor = ℓ(ŝ', g) + λ_cbf·c_cbf + λ_clf·c_clf"""
+        """Update policy: L_actor = ℓ(ŝ', g) + λ_cbf·c_cbf + λ_clf·c_clf + reward (MODEL-BASED)"""
         if len(self.buffer) < self.config.get("batch_size", 64):
             return
-        
+
         batch = self.buffer.sample(self.config["batch_size"])
         states = batch["states"].to(self.device)
-        
+        rewards = batch["rewards"].to(self.device)
+
         # Get subgoals (simplified: use current FSM subgoal for all)
         subgoal = self.fsm.get_current_subgoal()
         subgoals = torch.FloatTensor(
             np.tile(subgoal, (states.shape[0], 1))
         ).to(self.device)
-        
-        self.policy_trainer.train_step(states, subgoals)
+
+        # Model-based update using dynamics predictions
+        self.policy_trainer.train_step(states, subgoals, rewards, next_states=None, use_model_free=False)
     
     def prune_fsm(self) -> FSMAutomaton:
         """Prune FSM using learned certificates (Algorithm 1)"""

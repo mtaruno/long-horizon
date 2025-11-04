@@ -196,191 +196,45 @@ class RuleBasedDatasetGenerator(DatasetGenerator):
             
         return reward
 
-class WarehouseEnvironment(DatasetGenerator):
-    """Warehouse environment matching the dataset."""
-    
-    def __init__(self):
-        self.bounds = (12.0, 10.0)  # 12m x 10m warehouse
-        
-        # Obstacles matching the dataset
-        self.obstacles = [
-            {"center": np.array([2.0, 3.0]), "radius": 0.8},
-            {"center": np.array([2.0, 7.0]), "radius": 0.8},
-            {"center": np.array([5.0, 2.0]), "radius": 0.6},
-            {"center": np.array([5.0, 5.0]), "radius": 0.6},
-            {"center": np.array([5.0, 8.0]), "radius": 0.6},
-            {"center": np.array([8.0, 3.5]), "radius": 0.7},
-            {"center": np.array([8.0, 6.5]), "radius": 0.7},
-            {"center": np.array([4.0, 9.0]), "radius": 0.3},
-            {"center": np.array([9.0, 1.0]), "radius": 0.3},
-            {"center": np.array([1.0, 1.0]), "radius": 0.4},
-            {"center": np.array([11.0, 9.0]), "radius": 0.4},
-        ]
-        
-        # Goal regions matching the dataset
-        self.goals = [
-            {"center": np.array([10.5, 8.5]), "radius": 0.4},  # Loading dock 1
-            {"center": np.array([10.5, 1.5]), "radius": 0.4},  # Loading dock 2
-            {"center": np.array([1.5, 9.0]), "radius": 0.3},   # Pickup station 1
-            {"center": np.array([6.5, 0.5]), "radius": 0.3},   # Pickup station 2
-        ]
-        
-    def step(self, state: np.ndarray, action: np.ndarray) -> tuple:
-        """Simulate one environment step.
-        Why 0.1? Because time step is 0.1s in dataset.
-        Args:
-            state (np.ndarray): Current state [x, y, vx, vy].
-            action (np.ndarray): Action [ax, ay].
-        Returns:
-            next_state (np.ndarray): Next state after action.
-            reward (float): Reward obtained.
-            done (bool): Whether episode has ended.
-            sensors (Dict): Sensor readings.    
-        """
-        # Physics integration
-        new_vel = state[2:] + action * 0.1
-        new_pos = state[:2] + new_vel * 0.1
-        new_state = np.concatenate([new_pos, new_vel])
-        
-        # Check collisions
-        collision = self._check_collision(new_pos)
-        
-        # Check bounds
-        out_of_bounds = (new_pos[0] < 0 or new_pos[0] > self.bounds[0] or
-                        new_pos[1] < 0 or new_pos[1] > self.bounds[1])
-        
-        # Compute reward
-        min_goal_distance = min(
-            np.linalg.norm(new_pos - goal["center"]) 
-            for goal in self.goals
-        )
-        reward = -min_goal_distance
-        
-        if collision or out_of_bounds:
-            reward -= 10.0
-        
-        # Check goal
-        goal_reached = any(
-            np.linalg.norm(new_pos - goal["center"]) < goal["radius"]
-            for goal in self.goals
-        )
-        if goal_reached:
-            reward += 50.0
-            
-        # Generate sensor data
-        sensors = self._get_sensor_data(new_pos)
-        
-        return new_state, reward, goal_reached or collision, sensors
-    
-    def _check_collision(self, pos: np.ndarray) -> bool:
-        """Check collision with obstacles."""
-        for obstacle in self.obstacles:
-            if np.linalg.norm(pos - obstacle["center"]) < obstacle["radius"]:
-                return True
-        return False
-    
-    def _get_sensor_data(self, pos: np.ndarray) -> Dict:
-        """Generate sensor readings.
-        """
-        min_distance = float('inf')
-        closest_obstacle_dir = np.array([1.0, 0.0])
-        
-        for obstacle in self.obstacles:
-            distance = np.linalg.norm(pos - obstacle["center"]) - obstacle["radius"]
-            if distance < min_distance:
-                min_distance = distance
-                closest_obstacle_dir = (obstacle["center"] - pos) / (np.linalg.norm(obstacle["center"] - pos) + 1e-6)
-        
-        collision = self._check_collision(pos)
-        
-        return {
-            "obstacle_distance": min_distance,
-            "obstacle_direction": closest_obstacle_dir,
-            "collision": collision
-        }
-    
-    def generate_transitions(self, num_transitions):
-        """Not implemented for environment."""
-        raise NotImplementedError("Use step() method instead")
-    
-    
-    def get_dataset_statistics(self, transitions: List[Transition]) -> Dict:
-        """Get statistics about the dataset."""
-        total = len(transitions)
-        safe_count = sum(1 for t in transitions if t.is_safe)
-        goal_count = sum(1 for t in transitions if t.is_goal)
-        
-        return {
-            'total_transitions': total,
-            'safe_transitions': safe_count,
-            'unsafe_transitions': total - safe_count,
-            'goal_transitions': goal_count,
-            'safety_ratio': safe_count / total if total > 0 else 0,
-            'goal_ratio': goal_count / total if total > 0 else 0,
-            'avg_reward': np.mean([t.reward for t in transitions]) if total > 0 else 0
-        }
-
-
-class DatasetManager:
-    """Manage multiple dataset generators."""
-    
-    def __init__(self):
-        self.generators = []
-        self.weights = []
-    
-    def add_generator(self, generator: DatasetGenerator, weight: float = 1.0):
-        self.generators.append(generator)
-        self.weights.append(weight)
-    
-    def generate_balanced_dataset(
-        self,
-        total_transitions: int,
-        min_unsafe_ratio: float = 0.15,
-        min_goal_ratio: float = 0.05
-    ) -> List[Transition]:
-        """Generate balanced dataset."""
-        if not self.generators:
-            raise ValueError("No generators added")
-        
-        # Normalize weights
-        total_weight = sum(self.weights)
-        normalized_weights = [w / total_weight for w in self.weights]
-        
-        # Generate from each generator
-        all_transitions = []
-        for gen, weight in zip(self.generators, normalized_weights):
-            n = int(total_transitions * weight)
-            transitions = gen.generate_transitions(n)
-            all_transitions.extend(transitions)
-        
-        return all_transitions[:total_transitions]
-
-
-# ===== PREDEFINED DATASET CONFIGURATIONS =====
 
 def create_warehouse_dataset(num_transitions: int = 10000) -> List[Transition]:
-    """Create dataset for warehouse robot scenario."""
-    
-    # Define warehouse environment
-    workspace_bounds = (0.0, 10.0, 0.0, 8.0)  # 10m x 8m warehouse
-    
+    """Create dataset for warehouse robot scenario.
+
+    IMPORTANT: This MUST match the WarehouseEnvironment configuration exactly!
+    """
+
+    # Match WarehouseEnvironment bounds: 12m x 10m
+    workspace_bounds = (0.0, 12.0, 0.0, 10.0)
+
+    # Match WarehouseEnvironment obstacles exactly
     obstacles = [
-        {'center': np.array([2.0, 2.0]), 'radius': 0.5},  # Shelf 1
-        {'center': np.array([5.0, 3.0]), 'radius': 0.4},  # Shelf 2
-        {'center': np.array([8.0, 1.5]), 'radius': 0.3},  # Shelf 3
+        {'center': np.array([2.0, 3.0]), 'radius': 0.8},
+        {'center': np.array([2.0, 7.0]), 'radius': 0.8},
+        {'center': np.array([5.0, 2.0]), 'radius': 0.6},
+        {'center': np.array([5.0, 5.0]), 'radius': 0.6},
+        {'center': np.array([5.0, 8.0]), 'radius': 0.6},
+        {'center': np.array([8.0, 3.5]), 'radius': 0.7},
+        {'center': np.array([8.0, 6.5]), 'radius': 0.7},
+        {'center': np.array([4.0, 9.0]), 'radius': 0.3},
+        {'center': np.array([9.0, 1.0]), 'radius': 0.3},
+        {'center': np.array([1.0, 1.0]), 'radius': 0.4},
+        {'center': np.array([11.0, 9.0]), 'radius': 0.4},
     ]
-    
+
+    # Match WarehouseEnvironment goals exactly
     goal_regions = [
-        {'center': np.array([9.0, 7.0]), 'radius': 0.3},  # Delivery point 1
-        {'center': np.array([1.0, 7.0]), 'radius': 0.3},  # Delivery point 2
+        {'center': np.array([10.5, 8.5]), 'radius': 0.4},  # Loading dock 1
+        {'center': np.array([10.5, 1.5]), 'radius': 0.4},  # Loading dock 2
+        {'center': np.array([1.5, 9.0]), 'radius': 0.3},   # Pickup station 1
+        {'center': np.array([6.5, 0.5]), 'radius': 0.3},   # Pickup station 2
     ]
-    
+
     generator = RuleBasedDatasetGenerator(
         workspace_bounds=workspace_bounds,
         obstacles=obstacles,
         goal_regions=goal_regions
     )
-    
+
     return generator.generate_transitions(num_transitions)
 
 def create_navigation_dataset(num_transitions: int = 5000) -> List[Transition]:
@@ -404,29 +258,3 @@ def create_navigation_dataset(num_transitions: int = 5000) -> List[Transition]:
     
     return generator.generate_transitions(num_transitions)
 
-def create_mixed_dataset(
-    num_transitions: int = 15000,
-    simulation_ratio: float = 0.6,
-    rule_ratio: float = 0.4
-) -> List[Transition]:
-    """Create mixed dataset from multiple sources."""
-    
-    manager = DatasetManager()
-    
-    # Add rule-based generator
-    rule_generator = RuleBasedDatasetGenerator(
-        workspace_bounds=(0.0, 5.0, 0.0, 4.0),
-        obstacles=[{'center': np.array([2.5, 2.0]), 'radius': 0.4}],
-        goal_regions=[{'center': np.array([4.0, 3.0]), 'radius': 0.2}]
-    )
-    manager.add_generator(rule_generator, weight=rule_ratio)
-    
-    # Could add simulation generator here if environment is available
-    # sim_generator = SimulationDatasetGenerator(environment)
-    # manager.add_generator(sim_generator, weight=simulation_ratio)
-    
-    return manager.generate_balanced_dataset(
-        total_transitions=num_transitions,
-        min_unsafe_ratio=0.15,
-        min_goal_ratio=0.05
-    )

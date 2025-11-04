@@ -1,5 +1,5 @@
 """
-Example showing the complete training process with bootstrapping phase.
+Example showing the complete training process with bootstrapping phase (pre-training with static dataset).
 """
 
 import numpy as np
@@ -13,12 +13,12 @@ from src.core.policy import SubgoalConditionedPolicy
 from src.planning.fsm_planner import FSMState, FSMTransition, FSMAutomaton
 from src.training.integrated_trainer import FSMCBFCLFTrainer
 from src.dataset import create_warehouse_dataset
+from src.environment import WarehouseEnvironment
 
 
 def load_dataset_into_buffer(buffer):
     """
     Phase 1: Load pre-generated dataset from dataset module.
-    
     Returns:
         safe_states, unsafe_states, goal_states
     """
@@ -45,22 +45,21 @@ def load_dataset_into_buffer(buffer):
     
     print(f"✓ Loaded {len(buffer)} transitions")
     print(f"✓ Safe states: {len(safe_states)}")
+    print(f"Safe State Head: {safe_states[:3]}")
     print(f"✓ Unsafe states: {len(unsafe_states)}")
+    print(f"Unsafe State Head: {unsafe_states[:3]}")
     print(f"✓ Goal states: {len(goal_states)}")
+    print(f"Goal State Head: {goal_states[:3]}")
     
     return safe_states, unsafe_states, goal_states
 
 
 def pretrain_models(dynamics, cbf, clf, buffer, safe_states, unsafe_states, 
                     goal_states, dyn_opt, cbf_opt, clf_opt, device):
-    """
-    Phase 2: Pretrain models on collected ground truth data.
-    """
     print("\n" + "="*60)
     print("PHASE 2: Pretrain Models on Ground Truth Data")
     print("="*60)
     
-    # Pretrain dynamics
     print("\nTraining dynamics model...")
     for epoch in range(50):
         if len(buffer) < 64:
@@ -189,7 +188,6 @@ def main():
         {'center': np.array([1.0, 7.0]), 'radius': 0.3},
     ]
     
-    # Simple env for trainer
     class SimpleEnv:
         def __init__(self):
             self.state = np.array([1.0, 1.0, 0.0, 0.0])
@@ -219,6 +217,7 @@ def main():
             info = {"collision": collision, "success": success}
             return self.state.copy(), reward, collision or success, info
     
+
     env = SimpleEnv()
     buffer = ReplayBuffer(capacity=10000, state_dim=state_dim, action_dim=action_dim)
     
@@ -297,7 +296,6 @@ def main():
     print("\n" + "="*60)
     print("Training Complete!")
     print("="*60)
-
 
 if __name__ == "__main__":
     main()

@@ -26,34 +26,6 @@ constraint_violation = torch.clamp(
 
 ## 🆕 New Modular Components Added
 
-### 1. Subgoal-Conditioned Policy (`src/core/policy.py`)
-- **Class**: `SubgoalConditionedPolicy(state_dim, action_dim, subgoal_dim)`
-- **Purpose**: Actor π_θ(s, g) that outputs actions conditioned on FSM subgoals
-- **Training**: `PolicyTrainer` with certificate penalties:
-  ```
-  L_actor = ℓ(ŝ', g) + λ_cbf·[max(0, -h(ŝ'))]² + λ_clf·[max(0, V(ŝ') - ε)]²
-  ```
-
-### 2. FSM Planner (`src/planning/fsm_planner.py`)
-- **Classes**:
-  - `FSMState`: Single FSM node q ∈ Q with subgoal
-  - `FSMTransition`: Edge (q, σ, q') with predicate guard
-  - `FSMAutomaton`: Complete FSM A_φ = (Q, Σ, δ, q_0, q_f)
-  - `FSMPruner`: Algorithm 1 - prune unsafe/infeasible states and transitions
-- **Helper**: `create_simple_navigation_fsm()` for quick setup
-
-### 3. Integrated Trainer (`src/training/integrated_trainer.py`)
-- **Class**: `FSMCBFCLFTrainer`
-- **Purpose**: Implements Algorithm 2 from paper
-- **Training Loop**:
-  1. Get subgoal from FSM
-  2. Policy proposes action
-  3. Execute and collect data
-  4. Update dynamics model
-  5. Update CBF
-  6. Update CLF
-  7. Update policy with certificate penalties
-  8. FSM transition based on predicates
 
 ## 📁 New File Structure
 
