@@ -14,8 +14,10 @@ from .config import SafePlanningConfig, get_default_config, get_isaac_gym_config
 
 # Implementation classes (for advanced users)
 from .cbf import CBFNetwork, EnsembleCBF, CBFTrainer
-from .clf import CLFNetwork, EnsembleCLF, CLFTrainer
-from .models import DynamicsNetwork, EnsembleDynamics, ReplayBuffer, AdaptiveModelLearner
+from .clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
+from .models import DynamicsNetwork, EnsembleDynamics, AdaptiveModelLearner
+from .buffer import ReplayBuffer
+from .training.integrated_trainer import FSMCBFCLFTrainer
 
 # Dataset generation
 from .dataset import (
@@ -48,7 +50,7 @@ __all__ = [
     "FeasibilityConstraintInterface",
     
     # Implementation classes
-    "SafeFeasibleTrainer",
+    "FSMCBFCLFTrainer",
     "CBFNetwork",
     "EnsembleCBF", 
     "CBFTrainer",

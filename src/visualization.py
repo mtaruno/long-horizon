@@ -326,14 +326,28 @@ class FunctionVisualizer:
         else:
             fig = ax.figure
 
-        ax.plot(losses, color=color, linewidth=2)
+        ax.plot(losses, color=color, linewidth=2, label='Loss')
         ax.set_xlabel('Epoch', fontsize=12)
         ax.set_ylabel('Loss', fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
+
+        # Add statistics to title
+        initial_loss = losses[0] if len(losses) > 0 else 0
+        final_loss = losses[-1] if len(losses) > 0 else 0
+        min_loss = min(losses) if len(losses) > 0 else 0
+        max_loss = max(losses) if len(losses) > 0 else 0
+
+        title_with_stats = (f'{title}\n'
+                           f'Initial: {initial_loss:.4f} → Final: {final_loss:.4f} '
+                           f'(min: {min_loss:.4f}, max: {max_loss:.4f})')
+        ax.set_title(title_with_stats, fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
 
         if log_scale:
             ax.set_yscale('log')
+
+        # Add legend if there's meaningful variation
+        if max_loss - min_loss > 1e-6:
+            ax.legend()
 
         return fig, ax
 
