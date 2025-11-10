@@ -20,7 +20,7 @@ class WarehouseEnvironment:
             {"center": np.array([8.0, 3.5]), "radius": 0.7},
             {"center": np.array([8.0, 6.5]), "radius": 0.7},
             {"center": np.array([4.0, 9.0]), "radius": 0.3},
-            {"center": np.array([9.0, 1.0]), "radius": 0.3},
+            # {"center": np.array([9.0, 1.0]), "radius": 0.3},
             {"center": np.array([1.0, 1.0]), "radius": 0.4},
             {"center": np.array([11.0, 9.0]), "radius": 0.4},
         ]

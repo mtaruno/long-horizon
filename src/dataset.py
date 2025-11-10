@@ -200,7 +200,7 @@ class RuleBasedDatasetGenerator(DatasetGenerator):
 def create_warehouse_dataset(num_transitions: int = 10000) -> List[Transition]:
     """Create dataset for warehouse robot scenario.
 
-    IMPORTANT: This MUST match the WarehouseEnvironment configuration exactly!
+    IMPORTANT: This must match the WarehouseEnvironment configuration in order to get good training results for that specific environment. 
     """
 
     # Match WarehouseEnvironment bounds: 12m x 10m
@@ -216,7 +216,7 @@ def create_warehouse_dataset(num_transitions: int = 10000) -> List[Transition]:
         {'center': np.array([8.0, 3.5]), 'radius': 0.7},
         {'center': np.array([8.0, 6.5]), 'radius': 0.7},
         {'center': np.array([4.0, 9.0]), 'radius': 0.3},
-        {'center': np.array([9.0, 1.0]), 'radius': 0.3},
+        # {'center': np.array([9.0, 1.0]), 'radius': 0.3},
         {'center': np.array([1.0, 1.0]), 'radius': 0.4},
         {'center': np.array([11.0, 9.0]), 'radius': 0.4},
     ]

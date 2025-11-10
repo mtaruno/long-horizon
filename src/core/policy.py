@@ -9,7 +9,7 @@ from typing import Tuple, Optional
 class SubgoalConditionedPolicy(nn.Module):
     """
     Actor π_θ(s, g) that outputs actions conditioned on state and subgoal.
-    
+
     Used in: a_k = π_θ(s_k, g_k) where g_k is the subgoal from FSM transition.
     """
     

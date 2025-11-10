@@ -6,7 +6,7 @@ Clean, modular visualization functions for notebooks and analysis.
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 import torch
 
 
@@ -82,6 +82,46 @@ class EnvironmentVisualizer:
         ax.set_yticks(np.arange(0, self.env.bounds[1]+1, 2))
 
         return fig, ax
+    
+    def plot_dataset(self, transitions: List):
+        env = self.env
+        fig, ax = plt.subplots(figsize=(14, 12))
+        ax.set_xlim(-0.5, env.bounds[0] + 0.5)
+        ax.set_ylim(-0.5, env.bounds[1] + 0.5)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        # Draw environment (should now match dataset!)
+        for obs in env.obstacles:
+            circle = patches.Circle(obs['center'], obs['radius'], color='red', alpha=0.3, edgecolor='darkred', linewidth=2)
+            ax.add_patch(circle)
+
+        for goal in env.goals:
+            circle = patches.Circle(goal['center'], goal['radius'], color='green', alpha=0.2, edgecolor='darkgreen', linewidth=2)
+            ax.add_patch(circle)
+
+        # Plot states with correct labels
+        safe_positions = [t.state[:2] for t in transitions if t.is_safe and not t.is_goal]
+        unsafe_positions = [t.state[:2] for t in transitions if not t.is_safe]
+        goal_positions = [t.state[:2] for t in transitions if t.is_goal]
+
+        if safe_positions:
+            safe_array = np.array(safe_positions)
+            ax.scatter(safe_array[:, 0], safe_array[:, 1], c='blue', s=10, alpha=0.5, label=f'Safe ({len(safe_positions)})')
+
+        if unsafe_positions:
+            unsafe_array = np.array(unsafe_positions)
+            ax.scatter(unsafe_array[:, 0], unsafe_array[:, 1], c='red', s=30, marker='x', alpha=0.8, label=f'Unsafe ({len(unsafe_positions)})')
+
+        if goal_positions:
+            goal_array = np.array(goal_positions)
+            ax.scatter(goal_array[:, 0], goal_array[:, 1], c='gold', s=50, marker='*', alpha=0.9, label=f'Goal ({len(goal_positions)})')
+
+        ax.set_xlabel('X Position (m)', fontsize=12)
+        ax.set_ylabel('Y Position (m)', fontsize=12)
+        ax.set_title('Dataset State Distribution\n(Now matches environment layout!)', fontsize=14, fontweight='bold')
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
 
     def plot_trajectory(self, states: List[np.ndarray], ax=None,
                        color='blue', label='Trajectory', show_arrows=False,
@@ -382,3 +422,224 @@ def plot_side_by_side(env, cbf=None, clf=None, figsize=(16, 7)):
 
     plt.tight_layout()
     return fig, (ax1, ax2)
+
+
+def plot_training_progress(metrics: Dict, episode_steps: List[int], subgoals_reached: List[str],
+                           episode_collisions: List[bool], figsize=(18, 12)):
+    """
+    Create comprehensive training progress visualization.
+
+    Args:
+        metrics: Dictionary from compute_training_metrics()
+        episode_steps: List of steps per episode
+        subgoals_reached: List of FSM states reached per episode
+        episode_collisions: List of collision flags
+        figsize: Figure size
+
+    Returns:
+        Figure object
+    """
+    num_episodes = metrics['total_episodes']
+    window = 5
+
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(3, 2, hspace=0.3, wspace=0.3)
+
+    # Plot 1: Episode rewards
+    ax1 = fig.add_subplot(gs[0, 0])
+    episode_rewards = [metrics['mean_reward']] * num_episodes  # Placeholder
+    ax1.plot(range(1, num_episodes+1), metrics['rolling_rewards'],
+             '-', linewidth=3, color='darkblue', label=f'{window}-Episode Avg')
+    ax1.set_xlabel('Episode', fontsize=12)
+    ax1.set_ylabel('Total Reward', fontsize=12)
+    ax1.set_title('Training Progress: Episode Rewards', fontsize=14, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+
+    # Plot 2: Success rate
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.plot(range(1, num_episodes+1), metrics['rolling_success'],
+             '-', linewidth=3, color='gold')
+    ax2.fill_between(range(1, num_episodes+1), metrics['rolling_success'], alpha=0.3, color='gold')
+    ax2.set_xlabel('Episode', fontsize=12)
+    ax2.set_ylabel('Success Rate', fontsize=12)
+    ax2.set_title(f'Success Rate ({window}-Episode Rolling)', fontsize=14, fontweight='bold')
+    ax2.set_ylim([0, 1])
+    ax2.grid(True, alpha=0.3)
+
+    # Plot 3: Episode length
+    ax3 = fig.add_subplot(gs[1, 0])
+    ax3.plot(range(1, num_episodes+1), episode_steps, 'o-', linewidth=2,
+             markersize=6, color='green')
+    ax3.set_xlabel('Episode', fontsize=12)
+    ax3.set_ylabel('Steps', fontsize=12)
+    ax3.set_title('Episode Length', fontsize=14, fontweight='bold')
+    ax3.grid(True, alpha=0.3)
+
+    # Plot 4: Cumulative metrics
+    ax4 = fig.add_subplot(gs[1, 1])
+    cumulative_success = np.cumsum([1 if s == 'goal' else 0 for s in subgoals_reached])
+    cumulative_collisions = np.cumsum(episode_collisions)
+    ax4.plot(range(1, num_episodes+1), cumulative_success, '-', linewidth=3,
+             color='green', label='Successes')
+    ax4.plot(range(1, num_episodes+1), cumulative_collisions, '-', linewidth=3,
+             color='red', label='Collisions')
+    ax4.set_xlabel('Episode', fontsize=12)
+    ax4.set_ylabel('Cumulative Count', fontsize=12)
+    ax4.set_title('Cumulative Successes vs Collisions', fontsize=14, fontweight='bold')
+    ax4.grid(True, alpha=0.3)
+    ax4.legend()
+
+    # Plot 5: FSM progression
+    ax5 = fig.add_subplot(gs[2, :])
+    colors_map = {'start': 'red', 'at_g3': 'orange', 'at_g1': 'yellow', 'goal': 'green'}
+    for i, state in enumerate(subgoals_reached):
+        color = colors_map.get(state, 'gray')
+        ax5.scatter(i+1, 1, c=color, s=100, marker='o', edgecolor='black', linewidth=1)
+    ax5.set_xlabel('Episode', fontsize=12)
+    ax5.set_yticks([])
+    ax5.set_title('FSM State Progression\n(Red=start, Orange=G3, Yellow=G1, Green=goal)',
+                  fontsize=14, fontweight='bold')
+    ax5.set_xlim(0, num_episodes+1)
+    ax5.grid(True, alpha=0.3, axis='x')
+
+    plt.tight_layout()
+    return fig
+
+
+def plot_cbf_comparison(cbf_original, cbf_fixed, env, path_waypoints, figsize=(20, 6)):
+    """
+    Create before/after comparison of CBF safety maps.
+
+    Args:
+        cbf_original: Original CBF network
+        cbf_fixed: Fixed CBF network
+        env: Environment with obstacles and goals
+        path_waypoints: List of [x, y] waypoints
+        figsize: Figure size
+
+    Returns:
+        Figure object
+    """
+    import torch
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    # Create grid
+    x_range = np.linspace(0, env.bounds[0], 60)
+    y_range = np.linspace(0, env.bounds[1], 50)
+    X, Y = np.meshgrid(x_range, y_range)
+
+    # Compute CBF values
+    def compute_cbf_grid(cbf):
+        grid_values = np.zeros_like(X)
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                state = torch.FloatTensor([[X[i,j], Y[i,j], 0.0, 0.0]])
+                with torch.no_grad():
+                    grid_values[i,j] = cbf(state).item()
+        return grid_values
+
+    cbf_grid_original = compute_cbf_grid(cbf_original)
+    cbf_grid_fixed = compute_cbf_grid(cbf_fixed)
+
+    # Plot original
+    _plot_cbf_heatmap(ax1, X, Y, cbf_grid_original, env, path_waypoints,
+                      title='Original CBF\n(Bottom marked unsafe)')
+
+    # Plot fixed
+    _plot_cbf_heatmap(ax2, X, Y, cbf_grid_fixed, env, path_waypoints,
+                      title='Fixed CBF\n(Path-aware training)')
+
+    plt.tight_layout()
+    return fig
+
+
+def _plot_cbf_heatmap(ax, X, Y, cbf_values, env, path_waypoints, title):
+    """Helper to plot CBF heatmap."""
+    im = ax.contourf(X, Y, cbf_values, levels=20, cmap='RdYlGn', alpha=0.8)
+    ax.contour(X, Y, cbf_values, levels=[0], colors='black', linewidths=3)
+
+    # Draw environment
+    for obs in env.obstacles:
+        circle = patches.Circle(obs['center'], obs['radius'], color='none',
+                               edgecolor='darkred', linewidth=2)
+        ax.add_patch(circle)
+
+    for goal in env.goals:
+        circle = patches.Circle(goal['center'], goal['radius'], color='none',
+                               edgecolor='darkgreen', linewidth=2)
+        ax.add_patch(circle)
+
+    # Draw path
+    if path_waypoints:
+        path_x = [p[0] for p in path_waypoints]
+        path_y = [p[1] for p in path_waypoints]
+        ax.plot(path_x, path_y, 'c-', linewidth=4, marker='o', markersize=10,
+               label='Intended Path')
+        ax.scatter(path_x[1:], path_y[1:], c='gold', s=300, marker='*',
+                  edgecolor='black', linewidth=2, label='Waypoints', zorder=11)
+
+    ax.set_xlim(0, env.bounds[0])
+    ax.set_ylim(0, env.bounds[1])
+    ax.set_aspect('equal')
+    ax.set_xlabel('X Position (m)', fontsize=12)
+    ax.set_ylabel('Y Position (m)', fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    plt.colorbar(im, ax=ax, label='h(s)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+
+def print_training_summary(metrics: Dict, subgoals_reached: List[str], trainer=None):
+    """
+    Print comprehensive training summary.
+
+    Args:
+        metrics: Dictionary from compute_training_metrics()
+        subgoals_reached: List of FSM states reached
+        trainer: Optional IntegratedTrainer with statistics
+    """
+    print("\n" + "=" * 70)
+    print("📊 TRAINING SUMMARY")
+    print("=" * 70)
+
+    print(f"\n📈 Performance Metrics:")
+    print(f"  Total episodes: {metrics['total_episodes']}")
+    print(f"  Success rate: {metrics['total_successes']}/{metrics['total_episodes']} "
+          f"({metrics['total_successes']/metrics['total_episodes']*100:.1f}%)")
+    print(f"  Mean reward: {metrics['mean_reward']:.2f}")
+    print(f"  Final reward (last 10): {metrics['final_reward']:.2f}")
+
+    print(f"\n📊 Learning Progress:")
+    print(f"  Early success rate (ep 1-10): {metrics['early_success_rate']*100:.1f}%")
+    print(f"  Late success rate (ep {metrics['total_episodes']-9}-{metrics['total_episodes']}): "
+          f"{metrics['late_success_rate']*100:.1f}%")
+    print(f"  Improvement: {metrics['improvement']:+.1f}%")
+
+    if metrics['improvement'] > 0:
+        print(f"  ✅ Policy improved with training!")
+    else:
+        print(f"  ⚠️  No clear improvement yet")
+
+    # FSM progression
+    subgoal_counts = {'start': 0, 'at_g3': 0, 'at_g1': 0, 'goal': 0}
+    for state in subgoals_reached:
+        if state in subgoal_counts:
+            subgoal_counts[state] += 1
+
+    print(f"\n🎯 FSM Progression:")
+    print(f"  Stuck at start: {subgoal_counts['start']}")
+    print(f"  Reached G3: {subgoal_counts['at_g3']}")
+    print(f"  Reached G1: {subgoal_counts['at_g1']}")
+    print(f"  Reached goal: {subgoal_counts['goal']}")
+
+    # Trainer statistics
+    if trainer:
+        print(f"\n🔄 Co-Evolution Statistics:")
+        print(f"  Safe states collected: {len(trainer.safe_states)}")
+        print(f"  Unsafe states collected: {len(trainer.unsafe_states)}")
+        print(f"  Goal states collected: {len(trainer.goal_states)}")
+        print(f"  Total training steps: {trainer.step_count}")
+
+    print("=" * 70)

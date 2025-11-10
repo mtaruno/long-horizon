@@ -203,9 +203,8 @@ def create_simple_navigation_fsm(
     state_dim: int = 4
 ) -> FSMAutomaton:
     """
+    Example for warehouse robot navigation. 
     Create simple 3-state FSM: NAVIGATE → APPROACH → GOAL
-    
-    Example for warehouse robot navigation.
     """
     # Define states
     states = [

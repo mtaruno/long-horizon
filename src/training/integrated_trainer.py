@@ -82,7 +82,7 @@ class FSMCBFCLFTrainer:
         
         episode_reward = 0
         episode_steps = 0
-        
+
         for k in range(max_steps):
             # Get current subgoal from FSM
             subgoal = self.fsm.get_current_subgoal()
@@ -99,13 +99,13 @@ class FSMCBFCLFTrainer:
             
             # Execute action
             next_state, reward, done, info = env.step(action)
-            
+
             # Label safety and goal
             is_safe = not info.get("collision", False)
             is_goal = info.get("success", False)
-            
-            # Store transition
-            self.buffer.push(state, action, next_state, reward, done)
+
+            # Store transition with active subgoal
+            self.buffer.push(state, action, next_state, reward, done, subgoal=subgoal)
             
             if is_safe:
                 self.safe_states.append(state)
@@ -241,11 +241,16 @@ class FSMCBFCLFTrainer:
         states = batch["states"].to(self.device)
         rewards = batch["rewards"].to(self.device)
 
-        # Get subgoals (simplified: use current FSM subgoal for all)
-        subgoal = self.fsm.get_current_subgoal()
-        subgoals = torch.FloatTensor(
-            np.tile(subgoal, (states.shape[0], 1))
-        ).to(self.device)
+        # Use stored subgoals from when transitions were collected
+        # FIXED: Previously used current FSM subgoal for all samples (wrong!)
+        if "subgoals" in batch:
+            subgoals = batch["subgoals"].to(self.device)
+        else:
+            # Fallback for old buffer data without subgoals
+            subgoal = self.fsm.get_current_subgoal()
+            subgoals = torch.FloatTensor(
+                np.tile(subgoal, (states.shape[0], 1))
+            ).to(self.device)
 
         # Model-based update using dynamics predictions
         self.policy_trainer.train_step(states, subgoals, rewards, next_states=None, use_model_free=False)

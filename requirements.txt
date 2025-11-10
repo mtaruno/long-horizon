@@ -2,4 +2,13 @@ torch>=2.0.0
 numpy>=1.21.0
 scipy>=1.7.0
 pyyaml>=6.0
-matplotlib>=3.4.0
+matplotlib
+
+# high level planner
+ltlf2dfa
+graphviz
+build-essential
+bison
+flex
+pydot 
+networkx
