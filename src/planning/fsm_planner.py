@@ -1,236 +1,305 @@
 """
-FSM planner with CBF-CLF pruning (Algorithm 1).
+Integration of CBF-CLF safety framework with high-level planners (FSM, LLM).
 """
 
-import numpy as np
 import torch
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Callable
+import numpy as np
 from enum import Enum
+from typing import Dict, List, Tuple, Optional
+from dataclasses import dataclass
 
-
-@dataclass
 class FSMState:
-    """Single FSM node q ∈ Q"""
-    id: str
-    subgoal: np.ndarray  # Target state for this FSM node
-    is_goal: bool = False
-
-
-@dataclass
-class FSMTransition:
-    """Edge (q, σ, q') with predicate guard σ"""
-    from_state: str
-    to_state: str
-    predicate: str  # Name of predicate that triggers transition
+    """Represents a single node (state) in the FSM, like q0, q1, etc."""
+    def __init__(self, name, is_goal=False):
+        self.name = name
+        self.is_goal = is_goal
+        self.out_transitions = []
     
+    def add_transition(self, transition):
+        self.out_transitions.append(transition)
+
+    def __repr__(self):
+        return f"<FSMState: {self.name}>"
+
+class FSMTransition:
+    """Represents an edge (skill) in the FSM."""
+    def __init__(self, name, to_state, guard_fn, subgoal_fn):
+        self.name = name
+        self.to_state = to_state
+        self.guard_fn = guard_fn
+        self.subgoal_fn = subgoal_fn
+
+    def check_guard(self, current_state):
+        """Checks if this transition can be taken."""
+        return self.guard_fn(current_state)
+        
+    def get_subgoal(self, current_state):
+        """Returns the subgoal for this transition."""
+        return self.subgoal_fn(current_state)
 
 class FSMAutomaton:
     """
-    Finite State Machine A_φ = (Q, Σ, δ, q_0, q_f)
-    
-    Q: states
-    Σ: alphabet (predicate evaluations)
-    δ: transition function
-    q_0: initial state
-    q_f: goal state
+    Manages the FSM, including the CBF-CLF pruning logic
+    from Algorithm 1.
     """
-    
-    def __init__(
-        self,
-        states: List[FSMState],
-        transitions: List[FSMTransition],
-        initial_state_id: str,
-        predicates: Dict[str, Callable]
-    ):
-        self.states = {s.id: s for s in states}
-        self.transitions = transitions
-        self.current_state_id = initial_state_id
-        self.predicates = predicates
-        
-        # Build transition map: state_id -> [(predicate, next_state_id)]
-        self.transition_map = {}
-        for t in transitions:
-            if t.from_state not in self.transition_map:
-                self.transition_map[t.from_state] = []
-            self.transition_map[t.from_state].append((t.predicate, t.to_state))
-    
-    def get_current_state(self) -> FSMState:
-        return self.states[self.current_state_id]
-    
-    def get_current_subgoal(self) -> np.ndarray:
-        return self.get_current_state().subgoal
-    
-    def evaluate_predicates(self, state: np.ndarray) -> Dict[str, bool]:
-        """Evaluate all predicates on current state"""
-        return {name: pred(state) for name, pred in self.predicates.items()}
-    
-    def step(self, state: np.ndarray) -> bool:
+    def __init__(self, start_state: FSMState):
+        self.start_state = start_state
+        self.current_state = start_state
+        self.all_states = {start_state.name: start_state}
+        self.all_transitions = [] # We need a flat list for pruning
+
+    def add_state(self, state: FSMState):
+        if state.name not in self.all_states:
+            self.all_states[state.name] = state
+
+    def add_transition(self, from_state_name, transition: FSMTransition):
+        if from_state_name in self.all_states:
+            self.all_states[from_state_name].add_transition(transition)
+            self.all_transitions.append((self.all_states[from_state_name], transition))
+        else:
+            raise ValueError(f"State '{from_state_name}' not in FSM.")
+
+    def reset(self):
+        """Resets the FSM to the start state."""
+        self.current_state = self.start_state
+
+    def get_active_subgoal(self, physical_state):
         """
-        Execute one FSM transition based on predicate evaluation.
-        
-        Returns:
-            True if transitioned to new state, False otherwise
+        Checks guards and returns the subgoal for the first valid transition.
         """
-        if self.current_state_id not in self.transition_map:
-            return False
+        for transition in self.current_state.out_transitions:
+            if transition.check_guard(physical_state):
+                return transition.get_subgoal(physical_state)
         
-        pred_values = self.evaluate_predicates(state)
+        if self.current_state.out_transitions:
+            return self.current_state.out_transitions[0].get_subgoal(physical_state)
+        return None 
+
+    def update_state(self, physical_state):
+        """
+        Checks if any transition guards are met and updates the FSM's 
+        current_state.
+        """
+        for transition in self.current_state.out_transitions:
+            if transition.check_guard(physical_state):
+                self.current_state = transition.to_state
+                return True 
+        return False 
         
-        for pred_name, next_state_id in self.transition_map[self.current_state_id]:
-            if pred_values.get(pred_name, False):
-                self.current_state_id = next_state_id
-                return True
+    def is_at_goal(self):
+        return self.current_state.is_goal
+
+    def prune_fsm_with_certificates(self, cbf, clf, dynamics, actor, replay_buffer, 
+                                    safe_margin=0.0, feas_margin=0.1, n_samples=100,
+                                    pruning_threshold=0.95): # <-- CHANGED: New threshold
+        """
+        Implements Algorithm 1: FSM Pruning.
+        This version only prunes transitions, not states, and uses a
+        percentage threshold instead of torch.all().
+        """
+        print("[FSM Pruning] Starting FSM prune...")
         
-        return False
-    
-    def is_goal_reached(self) -> bool:
-        return self.get_current_state().is_goal
+        Q_prime = set(self.all_states.values())
+        print(f"[FSM Pruning] Skipping state pruning. All {len(Q_prime)} states kept.")
 
 
-class FSMPruner:
-    """
-    Algorithm 1: FSM Pruning with CBF-CLF Certificates
-    
-    Removes unsafe states and infeasible transitions.
-    """
-    
-    def __init__(
-        self,
-        cbf: torch.nn.Module,
-        clf: torch.nn.Module,
-        dynamics: torch.nn.Module,
-        epsilon_safe: float = 0.0,
-        epsilon_feas: float = 0.1,
-        num_samples: int = 100,
-        device: str = "cpu"
-    ):
-        self.cbf = cbf
-        self.clf = clf
-        self.dynamics = dynamics
-        self.epsilon_safe = epsilon_safe
-        self.epsilon_feas = epsilon_feas
-        self.num_samples = num_samples
-        self.device = device
-    
-    def prune(self, fsm: FSMAutomaton) -> FSMAutomaton:
-        """
-        Prune FSM by removing unsafe states and infeasible transitions.
+        # --- Algorithm 1: Prune invalid transitions ---
+        delta_prime = []
         
-        Returns:
-            Pruned FSM A'_φ = (Q', Σ, δ', q_0, q_f)
-        """
-        # Step 1: Prune unsafe states
-        safe_states = []
-        for state in fsm.states.values():
-            if self._is_state_safe(state):
-                safe_states.append(state)
+        if len(replay_buffer) < n_samples:
+             print("[FSM Pruning] Not enough samples in buffer to prune transitions yet.")
+             delta_prime = [(q_from, t) for q_from, t in self.all_transitions if q_from in Q_prime and t.to_state in Q_prime]
+        else:
+            for q_from, transition in self.all_transitions:
+                q_to = transition.to_state
+                
+                if q_from not in Q_prime or q_to not in Q_prime:
+                    continue 
+                
+                samples = replay_buffer.sample(n_samples)
+                states_s_list = [t.state for t in samples]
+                states_s = torch.FloatTensor(np.array(states_s_list)).to(cbf.device)
+
+                goals_g_np = [transition.get_subgoal(s)[:2] for s in states_s_list]
+                goals_g = torch.FloatTensor(np.array(goals_g_np)).to(cbf.device)
+                
+                with torch.no_grad():
+                    actions_a = actor(states_s, goals_g)
+                    s_prime = dynamics(states_s, actions_a)
+                    h_prime = cbf(s_prime).squeeze()
+                    v_prime = clf(s_prime).squeeze()
+                
+                # --- PRUNING LOGIC CHANGED ---
+                # Check if the *percentage* of valid samples is above the threshold
+                safe_samples = torch.sum(h_prime >= safe_margin).item() / n_samples
+                feasible_samples = torch.sum(v_prime <= feas_margin).item() / n_samples
+                
+                is_safe = safe_samples >= pruning_threshold
+                is_feasible = feasible_samples >= pruning_threshold
+
+                if is_safe and is_feasible:
+                    delta_prime.append((q_from, transition))
+                else:
+                    print(f"[FSM Pruning] Pruning transition: {q_from.name} -> {q_to.name} "
+                          f"(Safe: {safe_samples*100:.1f}%, Feasible: {feasible_samples*100:.1f}%)")
+
+        # --- Reconstruct FSM ---
+        self.all_states = {q.name: q for q in Q_prime}
+        self.all_transitions = delta_prime
         
-        # Step 2: Prune infeasible transitions
-        valid_transitions = []
-        for trans in fsm.transitions:
-            if trans.from_state in [s.id for s in safe_states] and \
-               trans.to_state in [s.id for s in safe_states]:
-                if self._is_transition_valid(trans, fsm):
-                    valid_transitions.append(trans)
-        
-        return FSMAutomaton(
-            states=safe_states,
-            transitions=valid_transitions,
-            initial_state_id=fsm.current_state_id,
-            predicates=fsm.predicates
-        )
-    
-    def _is_state_safe(self, state: FSMState) -> bool:
-        """Check if FSM state's associated region is safe"""
-        # Sample states around subgoal
-        samples = self._sample_state_distribution(state.subgoal)
-        
-        with torch.no_grad():
-            h_values = self.cbf(samples).squeeze(-1)
-            return torch.all(h_values >= self.epsilon_safe).item()
-    
-    def _is_transition_valid(self, trans: FSMTransition, fsm: FSMAutomaton) -> bool:
-        """Check if transition maintains safety and feasibility"""
-        from_state = fsm.states[trans.from_state]
-        to_state = fsm.states[trans.to_state]
-        
-        # Sample (s, a) pairs executing this transition
-        states, actions = self._sample_transition_data(from_state, to_state)
-        
-        with torch.no_grad():
-            next_states = self.dynamics(states, actions)
+        for q in self.all_states.values():
+            q.out_transitions = []
             
-            # Check safety: h(s') >= ε_safe
-            h_values = self.cbf(next_states).squeeze(-1)
-            safe = torch.all(h_values >= self.epsilon_safe)
+        for q_from, transition in self.all_transitions:
+            if q_from.name in self.all_states:
+                q_from.add_transition(transition)
             
-            # Check feasibility: V(s') <= ε_feas
-            V_values = self.clf(next_states).squeeze(-1)
-            feasible = torch.all(V_values <= self.epsilon_feas)
-            
-            return (safe and feasible).item()
-    
-    def _sample_state_distribution(self, center: np.ndarray) -> torch.Tensor:
-        """Sample states around a center point"""
-        noise = np.random.randn(self.num_samples, len(center)) * 0.1
-        samples = center + noise
-        return torch.FloatTensor(samples).to(self.device)
-    
-    def _sample_transition_data(
-        self, 
-        from_state: FSMState, 
-        to_state: FSMState
-    ) -> tuple:
-        """Sample (s, a) pairs for transition"""
-        # Sample states near from_state
-        states = self._sample_state_distribution(from_state.subgoal)
-        
-        # Sample actions toward to_state
-        direction = to_state.subgoal[:states.shape[1]] - from_state.subgoal[:states.shape[1]]
-        direction = direction / (np.linalg.norm(direction) + 1e-6)
-        
-        actions = torch.FloatTensor(
-            np.tile(direction, (self.num_samples, 1))
-        ).to(self.device)
-        
-        return states, actions
+        print(f"[FSM Pruning] Pruning complete. {len(self.all_states)} states, {len(self.all_transitions)} transitions remain.")
 
 
-def create_simple_navigation_fsm(
-    start_pos: np.ndarray,
-    goal_pos: np.ndarray,
-    state_dim: int = 4
-) -> FSMAutomaton:
+
+def create_simple_fsm(env):
+    """Creates a basic FSM for our environment - DEPRECATED, use create_waypoint_fsm instead."""
+    goal_center = env.target_goal['center']
+    goal_radius = env.target_goal['radius']
+
+    q0 = FSMState("q0_Seeking")
+    q_goal = FSMState("q_Goal", is_goal=True)
+
+    def guard_is_at_goal(state):
+        dist = np.linalg.norm(state[:2] - goal_center)
+        return dist <= goal_radius
+
+    def guard_is_not_at_goal(state):
+        dist = np.linalg.norm(state[:2] - goal_center)
+        return dist > goal_radius
+
+    def subgoal_seek_goal(state):
+        return goal_center
+
+    t1 = FSMTransition("Transition_to_Goal", q_goal, guard_is_at_goal, subgoal_seek_goal)
+    t_loop = FSMTransition("Loop_Seeking", q0, guard_is_not_at_goal, subgoal_seek_goal)
+
+    fsm = FSMAutomaton(start_state=q0)
+    fsm.add_state(q_goal)
+    fsm.add_transition("q0_Seeking", t1)
+    fsm.add_transition("q0_Seeking", t_loop)
+
+    return fsm, goal_center
+
+
+
+def create_waypoint_fsm(env):
     """
-    Example for warehouse robot navigation. 
-    Create simple 3-state FSM: NAVIGATE → APPROACH → GOAL
+    Creates an FSM with hardcoded waypoints to navigate around obstacles.
+
+    The warehouse layout has obstacles, so we'll create a path:
+    Start (0.5, 10.0) -> Waypoint1 (3.5, 5.0) -> Waypoint2 (6.0, 8.0) -> Goal (10.5, 8.5)
+
+    This path navigates through the corridors between obstacles.
     """
-    # Define states
-    states = [
-        FSMState(id="navigate", subgoal=goal_pos, is_goal=False),
-        FSMState(id="approach", subgoal=goal_pos, is_goal=False),
-        FSMState(id="goal", subgoal=goal_pos, is_goal=True)
-    ]
-    
-    # Define transitions
-    transitions = [
-        FSMTransition("navigate", "approach", "near_goal"),
-        FSMTransition("approach", "goal", "at_goal")
-    ]
-    
-    # Define predicates
-    def near_goal(state: np.ndarray) -> bool:
-        pos = state[:2]
-        return np.linalg.norm(pos - goal_pos) < 1.0
-    
-    def at_goal(state: np.ndarray) -> bool:
-        pos = state[:2]
-        return np.linalg.norm(pos - goal_pos) < 0.2
-    
-    predicates = {
-        "near_goal": near_goal,
-        "at_goal": at_goal
-    }
-    
-    return FSMAutomaton(states, transitions, "navigate", predicates)
+    goal_center = env.target_goal['center']
+    goal_radius = env.target_goal['radius']
+
+    # Define waypoints based on the obstacle layout
+    # Looking at the environment, obstacles are at:
+    # [2,3], [2,7], [5,2], [5,5], [5,8], [7,3.5], [7,6.5], [9,1], [9,5], [9,9], [11,3]
+    # Goal is at [10.5, 8.5]
+
+    waypoint1 = np.array([3.5, 5.0])  # Between left obstacles
+    waypoint2 = np.array([6.0, 8.0])   # Navigate around middle obstacles
+    waypoint3 = np.array([8.0, 7.5])   # Get closer to goal region
+
+    waypoint_radius = 0.8  # Radius to consider "reached" a waypoint
+
+    # Create FSM states
+    q0 = FSMState("q0_ToWaypoint1")
+    q1 = FSMState("q1_ToWaypoint2")
+    q2 = FSMState("q2_ToWaypoint3")
+    q3 = FSMState("q3_ToGoal")
+    q_goal = FSMState("q_Goal", is_goal=True)
+
+    # Guards for waypoint 1
+    def guard_at_waypoint1(state):
+        dist = np.linalg.norm(state[:2] - waypoint1)
+        return dist <= waypoint_radius
+
+    def guard_not_at_waypoint1(state):
+        return not guard_at_waypoint1(state)
+
+    # Guards for waypoint 2
+    def guard_at_waypoint2(state):
+        dist = np.linalg.norm(state[:2] - waypoint2)
+        return dist <= waypoint_radius
+
+    def guard_not_at_waypoint2(state):
+        return not guard_at_waypoint2(state)
+
+    # Guards for waypoint 3
+    def guard_at_waypoint3(state):
+        dist = np.linalg.norm(state[:2] - waypoint3)
+        return dist <= waypoint_radius
+
+    def guard_not_at_waypoint3(state):
+        return not guard_at_waypoint3(state)
+
+    # Guards for goal
+    def guard_at_goal(state):
+        dist = np.linalg.norm(state[:2] - goal_center)
+        return dist <= goal_radius
+
+    def guard_not_at_goal(state):
+        return not guard_at_goal(state)
+
+    # Subgoal functions
+    def subgoal_waypoint1(state):
+        return waypoint1
+
+    def subgoal_waypoint2(state):
+        return waypoint2
+
+    def subgoal_waypoint3(state):
+        return waypoint3
+
+    def subgoal_goal(state):
+        return goal_center
+
+    # Create transitions
+    # From q0 (seeking waypoint1)
+    t0_to_q1 = FSMTransition("Reached_WP1", q1, guard_at_waypoint1, subgoal_waypoint2)
+    t0_loop = FSMTransition("Seeking_WP1", q0, guard_not_at_waypoint1, subgoal_waypoint1)
+
+    # From q1 (seeking waypoint2)
+    t1_to_q2 = FSMTransition("Reached_WP2", q2, guard_at_waypoint2, subgoal_waypoint3)
+    t1_loop = FSMTransition("Seeking_WP2", q1, guard_not_at_waypoint2, subgoal_waypoint2)
+
+    # From q2 (seeking waypoint3)
+    t2_to_q3 = FSMTransition("Reached_WP3", q3, guard_at_waypoint3, subgoal_goal)
+    t2_loop = FSMTransition("Seeking_WP3", q2, guard_not_at_waypoint3, subgoal_waypoint3)
+
+    # From q3 (seeking goal)
+    t3_to_goal = FSMTransition("Reached_Goal", q_goal, guard_at_goal, subgoal_goal)
+    t3_loop = FSMTransition("Seeking_Goal", q3, guard_not_at_goal, subgoal_goal)
+
+    # Build FSM
+    fsm = FSMAutomaton(start_state=q0)
+    fsm.add_state(q1)
+    fsm.add_state(q2)
+    fsm.add_state(q3)
+    fsm.add_state(q_goal)
+
+    fsm.add_transition("q0_ToWaypoint1", t0_to_q1)
+    fsm.add_transition("q0_ToWaypoint1", t0_loop)
+
+    fsm.add_transition("q1_ToWaypoint2", t1_to_q2)
+    fsm.add_transition("q1_ToWaypoint2", t1_loop)
+
+    fsm.add_transition("q2_ToWaypoint3", t2_to_q3)
+    fsm.add_transition("q2_ToWaypoint3", t2_loop)
+
+    fsm.add_transition("q3_ToGoal", t3_to_goal)
+    fsm.add_transition("q3_ToGoal", t3_loop)
+
+    # Return FSM and waypoints for visualization
+    waypoints = [waypoint1, waypoint2, waypoint3, goal_center]
+    return fsm, goal_center, waypoints

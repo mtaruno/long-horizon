@@ -424,8 +424,11 @@ def plot_side_by_side(env, cbf=None, clf=None, figsize=(16, 7)):
     return fig, (ax1, ax2)
 
 
-def plot_training_progress(metrics: Dict, episode_steps: List[int], subgoals_reached: List[str],
-                           episode_collisions: List[bool], figsize=(18, 12)):
+def plot_training_progress(metrics: Dict, 
+    episode_steps: List[int], 
+    subgoals_reached: List[str],
+    episode_collisions: List[bool], 
+    figsize=(18, 12)):
     """
     Create comprehensive training progress visualization.
 
@@ -506,140 +509,3 @@ def plot_training_progress(metrics: Dict, episode_steps: List[int], subgoals_rea
     plt.tight_layout()
     return fig
 
-
-def plot_cbf_comparison(cbf_original, cbf_fixed, env, path_waypoints, figsize=(20, 6)):
-    """
-    Create before/after comparison of CBF safety maps.
-
-    Args:
-        cbf_original: Original CBF network
-        cbf_fixed: Fixed CBF network
-        env: Environment with obstacles and goals
-        path_waypoints: List of [x, y] waypoints
-        figsize: Figure size
-
-    Returns:
-        Figure object
-    """
-    import torch
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-
-    # Create grid
-    x_range = np.linspace(0, env.bounds[0], 60)
-    y_range = np.linspace(0, env.bounds[1], 50)
-    X, Y = np.meshgrid(x_range, y_range)
-
-    # Compute CBF values
-    def compute_cbf_grid(cbf):
-        grid_values = np.zeros_like(X)
-        for i in range(X.shape[0]):
-            for j in range(X.shape[1]):
-                state = torch.FloatTensor([[X[i,j], Y[i,j], 0.0, 0.0]])
-                with torch.no_grad():
-                    grid_values[i,j] = cbf(state).item()
-        return grid_values
-
-    cbf_grid_original = compute_cbf_grid(cbf_original)
-    cbf_grid_fixed = compute_cbf_grid(cbf_fixed)
-
-    # Plot original
-    _plot_cbf_heatmap(ax1, X, Y, cbf_grid_original, env, path_waypoints,
-                      title='Original CBF\n(Bottom marked unsafe)')
-
-    # Plot fixed
-    _plot_cbf_heatmap(ax2, X, Y, cbf_grid_fixed, env, path_waypoints,
-                      title='Fixed CBF\n(Path-aware training)')
-
-    plt.tight_layout()
-    return fig
-
-
-def _plot_cbf_heatmap(ax, X, Y, cbf_values, env, path_waypoints, title):
-    """Helper to plot CBF heatmap."""
-    im = ax.contourf(X, Y, cbf_values, levels=20, cmap='RdYlGn', alpha=0.8)
-    ax.contour(X, Y, cbf_values, levels=[0], colors='black', linewidths=3)
-
-    # Draw environment
-    for obs in env.obstacles:
-        circle = patches.Circle(obs['center'], obs['radius'], color='none',
-                               edgecolor='darkred', linewidth=2)
-        ax.add_patch(circle)
-
-    for goal in env.goals:
-        circle = patches.Circle(goal['center'], goal['radius'], color='none',
-                               edgecolor='darkgreen', linewidth=2)
-        ax.add_patch(circle)
-
-    # Draw path
-    if path_waypoints:
-        path_x = [p[0] for p in path_waypoints]
-        path_y = [p[1] for p in path_waypoints]
-        ax.plot(path_x, path_y, 'c-', linewidth=4, marker='o', markersize=10,
-               label='Intended Path')
-        ax.scatter(path_x[1:], path_y[1:], c='gold', s=300, marker='*',
-                  edgecolor='black', linewidth=2, label='Waypoints', zorder=11)
-
-    ax.set_xlim(0, env.bounds[0])
-    ax.set_ylim(0, env.bounds[1])
-    ax.set_aspect('equal')
-    ax.set_xlabel('X Position (m)', fontsize=12)
-    ax.set_ylabel('Y Position (m)', fontsize=12)
-    ax.set_title(title, fontsize=14, fontweight='bold')
-    plt.colorbar(im, ax=ax, label='h(s)')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-
-def print_training_summary(metrics: Dict, subgoals_reached: List[str], trainer=None):
-    """
-    Print comprehensive training summary.
-
-    Args:
-        metrics: Dictionary from compute_training_metrics()
-        subgoals_reached: List of FSM states reached
-        trainer: Optional IntegratedTrainer with statistics
-    """
-    print("\n" + "=" * 70)
-    print("📊 TRAINING SUMMARY")
-    print("=" * 70)
-
-    print(f"\n📈 Performance Metrics:")
-    print(f"  Total episodes: {metrics['total_episodes']}")
-    print(f"  Success rate: {metrics['total_successes']}/{metrics['total_episodes']} "
-          f"({metrics['total_successes']/metrics['total_episodes']*100:.1f}%)")
-    print(f"  Mean reward: {metrics['mean_reward']:.2f}")
-    print(f"  Final reward (last 10): {metrics['final_reward']:.2f}")
-
-    print(f"\n📊 Learning Progress:")
-    print(f"  Early success rate (ep 1-10): {metrics['early_success_rate']*100:.1f}%")
-    print(f"  Late success rate (ep {metrics['total_episodes']-9}-{metrics['total_episodes']}): "
-          f"{metrics['late_success_rate']*100:.1f}%")
-    print(f"  Improvement: {metrics['improvement']:+.1f}%")
-
-    if metrics['improvement'] > 0:
-        print(f"  ✅ Policy improved with training!")
-    else:
-        print(f"  ⚠️  No clear improvement yet")
-
-    # FSM progression
-    subgoal_counts = {'start': 0, 'at_g3': 0, 'at_g1': 0, 'goal': 0}
-    for state in subgoals_reached:
-        if state in subgoal_counts:
-            subgoal_counts[state] += 1
-
-    print(f"\n🎯 FSM Progression:")
-    print(f"  Stuck at start: {subgoal_counts['start']}")
-    print(f"  Reached G3: {subgoal_counts['at_g3']}")
-    print(f"  Reached G1: {subgoal_counts['at_g1']}")
-    print(f"  Reached goal: {subgoal_counts['goal']}")
-
-    # Trainer statistics
-    if trainer:
-        print(f"\n🔄 Co-Evolution Statistics:")
-        print(f"  Safe states collected: {len(trainer.safe_states)}")
-        print(f"  Unsafe states collected: {len(trainer.unsafe_states)}")
-        print(f"  Goal states collected: {len(trainer.goal_states)}")
-        print(f"  Total training steps: {trainer.step_count}")
-
-    print("=" * 70)

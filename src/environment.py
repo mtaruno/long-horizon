@@ -2,14 +2,26 @@
 
 import numpy as np
 from typing import List, Dict
-from .types import Transition
+import gymnasium as gym
+from gymnasium import spaces
+from collections import deque, namedtuple
+import random
 
-class WarehouseEnvironment:
+# Define the structure for a single transition
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward', 'is_done',
+                         'is_safe', 'is_goal', 'goal'))
+
+class WarehouseEnvironment(gym.Env):
     """Warehouse environment matching the dataset."""
     
-    def __init__(self):
+    def __init__(self, goal_pos=np.array([10.5, 8.5]), goal_radius=0.4):
         self.bounds = (12.0, 10.0)  # 12m x 10m warehouse
-        
+        self.dt = 0.1
+        self.max_vel = 1.0
+        self.max_accel = 5.0 # scaled from action
+        self.safety_margin = 0.1
+
         # Obstacles matching the dataset
         self.obstacles = [
             {"center": np.array([2.0, 3.0]), "radius": 0.8},
@@ -25,18 +37,49 @@ class WarehouseEnvironment:
             {"center": np.array([11.0, 9.0]), "radius": 0.4},
         ]
         
-        # Goal regions matching the dataset
-        self.goals = [
-            {"center": np.array([10.5, 8.5]), "radius": 0.4},  # Loading dock 1
-            {"center": np.array([10.5, 1.5]), "radius": 0.4},  # Loading dock 2
-            {"center": np.array([1.5, 9.0]), "radius": 0.3},   # Pickup station 1
-            {"center": np.array([6.5, 0.5]), "radius": 0.3},   # Pickup station 2
-        ]
 
-    def reset(self) -> np.ndarray:
+        self.target_goal = {"center": goal_pos, "radius": goal_radius}
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)  # [ax, ay]
+
+        # State space: [x, y, vx, vy]
+        low_obs = np.array([0.0, 0.0, -self.max_vel, -self.max_vel])
+        high_obs = np.array([self.bounds[0], self.bounds[1], self.max_vel, self.max_vel])
+        self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
+        
+        self.state = None
+
+
+    def _is_safe(self, state):
+        """Checks if the state is outside all obstacles + safety margin."""
+        pos = state[:2]
+        for obs in self.obstacles:
+            dist = np.linalg.norm(pos - obs['center'])
+            # [cite: 186]
+            if dist < (obs['radius'] + self.safety_margin):
+                return False
+        return True
+
+    def _is_goal(self, state):
+        """Checks if the state is within the target goal region."""
+        pos = state[:2]
+        dist_to_goal = np.linalg.norm(pos - self.target_goal['center'])
+        return dist_to_goal <= self.target_goal['radius']
+
+
+    def reset(self, seed=None, options=None) -> np.ndarray:
         """Reset environment to initial state."""
-        self.state = np.array([0.5, 0.2, 0.0, 0.0])  # [x, y, vx, vy] - Start at a safe starting position
-        return self.state
+        if seed is not None:
+            super().reset(seed=seed)
+        
+        # use fixed start position for consistent training with waypoints
+        # start position: bottom left area, safe from obstacles
+        fixed_start_pos = np.array([0.5, 10.0])
+        # TODO: Implement random start sampling if needed
+
+        self.state = np.concatenate([fixed_start_pos, [0.0, 0.0]])
+        info = {'is_safe': True, 'is_goal': self._is_goal(self.state)}
+        return self.state, info
+    
 
     def step(self, action: np.ndarray, state: np.ndarray = None) -> tuple:
         """Simulate one environment step. Time Step = 0.1s.
@@ -51,54 +94,47 @@ class WarehouseEnvironment:
             info (Dict): Info dict with 'collision' and 'success' keys.
         """
         # Use provided state or internal state
-        if state is None:
-            state = self.state
-
-        # Physics integration
-        new_vel = state[2:] + action * 0.1
-        new_pos = state[:2] + new_vel * 0.1
-        new_state = np.concatenate([new_pos, new_vel])
-
-        # Update internal state
-        self.state = new_state
+        if self.state is None:
+            raise RuntimeError("Environment must be reset before stepping.")
+        
+        pos = self.state[:2]
+        vel = self.state[2:]
+        # Apply physics (Forward Euler) [cite: 181-184]
+        accel = np.clip(action, -1.0, 1.0) * self.max_accel
+        
+        new_vel = vel + accel * self.dt
+        new_vel = np.clip(new_vel, -self.max_vel, self.max_vel)
+        
+        new_pos = pos + new_vel * self.dt
+        new_pos = np.clip(new_pos, [0.0, 0.0], self.bounds)
+        
+        self.state = np.concatenate([new_pos, new_vel])
 
         # Check collisions
-        collision = self._check_collision(new_pos)
+        is_safe = self._is_safe(self.state)
+        is_goal = self._is_goal(self.state)
 
-        # Check bounds
-        out_of_bounds = (new_pos[0] < 0 or new_pos[0] > self.bounds[0] or
-                        new_pos[1] < 0 or new_pos[1] > self.bounds[1])
+        terminated = False # Episode ends (collision or goal)
+        truncated = False  # Episode cut short (time limit)
 
-        # Compute reward
-        min_goal_distance = min(
-            np.linalg.norm(new_pos - goal["center"])
-            for goal in self.goals
-        )
-        reward = -min_goal_distance
+        if not is_safe:
+            reward = -10.0 # Collision penalty
+            terminated = True
+        elif is_goal:
+            reward = 50.0  # Goal bonus
+            terminated = True
+        else:
+            dist_to_goal = np.linalg.norm(new_pos - self.target_goal['center'])
+            reward = -dist_to_goal # Negative distance
+        
+        reward -= 0.01 * np.linalg.norm(action) # Small action penalty
 
-        if collision or out_of_bounds:
-            reward -= 10.0
-
-        # Check goal
-        goal_reached = any(
-            np.linalg.norm(new_pos - goal["center"]) < goal["radius"]
-            for goal in self.goals
-        )
-        if goal_reached:
-            reward += 50.0
-
-        # Generate sensor data
-        sensors = self._get_sensor_data(new_pos)
-
-        # Create info dict with standard keys
         info = {
-            'collision': collision or out_of_bounds,
-            'success': goal_reached,
-            'obstacle_distance': sensors['obstacle_distance'],
-            'obstacle_direction': sensors['obstacle_direction']
+            'is_safe': is_safe,
+            'is_goal': is_goal
         }
-
-        return new_state, reward, goal_reached or collision or out_of_bounds, info
+        
+        return self.state, reward, terminated, truncated, info
     
     def _check_collision(self, pos: np.ndarray) -> bool:
         """Check collision with obstacles."""
@@ -145,3 +181,16 @@ class WarehouseEnvironment:
         }
     
 
+class ReplayBuffer:
+    """A simple Replay Buffer for storing and sampling transitions."""
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+
+    def add(self, transition: Transition):
+        self.buffer.append(transition)
+
+    def sample(self, batch_size):
+        return random.sample(self.buffer, min(len(self.buffer), batch_size))
+
+    def __len__(self):
+        return len(self.buffer)

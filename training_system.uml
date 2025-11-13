@@ -1,0 +1,302 @@
+@startuml
+title CBF-CLF FSM-Guided Training System (Algorithm 2 Implementation)
+
+skinparam componentStyle rectangle
+
+' ============================================================================
+' CORE COMPONENTS
+' ============================================================================
+
+package "Environment & Task Definition" {
+  [WarehouseEnvironment] as Env
+  note right of Env
+    state: [x, y, vx, vy]
+    action: [ax, ay]
+    step(action) -> (s', r, done, info)
+    info: {collision, success}
+    Obstacles: 11 circles
+    Goals: 4 regions
+    Physics: Forward Euler (dt=0.1)
+  end note
+
+  [FSMAutomaton] as FSM
+  note right of FSM
+    A_φ = (Q, Σ, δ, q_0, q_f)
+    States Q: {start, at_g3, at_g1, goal}
+    Each q has subgoal g_q
+    Predicates Σ: {at_g3, at_g1, at_final}
+    Transitions δ: predicate-guarded
+
+    Methods:
+    - get_current_subgoal() -> g
+    - step(state) -> transition fired
+    - is_goal_reached() -> bool
+  end note
+
+  [SubgoalRewardWrapper] as Wrapper
+  note right of Wrapper
+    Shapes rewards:
+    + base reward (environment)
+    + progress: +5/meter closer
+    + bonus: +30 if subgoal reached
+    Updates FSM automatically
+  end note
+}
+
+package "Neural Components" {
+  [SubgoalConditionedPolicy] as Policy
+  note right of Policy
+    π_θ(s, g) -> a
+    Input: state (4D) + subgoal (4D)
+    Hidden: [128, 128]
+    Output: action (2D), tanh scaled
+
+    Losses:
+    - subgoal: ||ŝ'[:2] - g[:2]||²
+    - CBF penalty: λ·[-h(ŝ')]₊²
+    - CLF penalty: λ·[V(ŝ')-ε]₊²
+    - reward: -E[r]
+  end note
+
+  [EnsembleDynamics] as Dyn
+  note right of Dyn
+    P̂_θ(s, a) -> s'
+    3 models for uncertainty
+    Hidden: [128, 128]
+    forward(s, a) -> ŝ' (mean)
+    Loss: MSE(ŝ', s')
+  end note
+
+  [CBFNetwork] as CBF
+  note right of CBF
+    h_φ(s) ∈ ℝ
+    Safety certificate:
+    h(s) ≥ 0 -> safe
+    h(s) < 0 -> unsafe
+    Hidden: [64, 64]
+
+    Trained on:
+    - Safe states (no collision)
+    - Unsafe states (collision)
+    - Path samples (augmentation)
+  end note
+
+  [CLFNetwork] as CLF
+  note right of CLF
+    V_ψ(s) ∈ ℝ≥0
+    Goal certificate:
+    V(goal) = 0
+    V(s) > 0 elsewhere
+    Hidden: [64, 64]
+
+    Trained on:
+    - Goal states (success)
+    - All states (trajectory)
+  end note
+}
+
+package "Data Management" {
+  [ReplayBuffer] as Buffer
+  note right of Buffer
+    **CRITICAL FIX**
+    Capacity: 10,000
+
+    push(state, action, next_state,
+         reward, done, **subgoal**)
+
+    Stores transition with:
+    - s, a, s', r, done
+    - **CRITICAL: active subgoal g**
+
+    sample(batch_size) -> dict
+    Returns:
+    - states, actions, next_states
+    - rewards, dones
+    - **subgoals** (if stored)
+
+    Before: Used current FSM subgoal
+    for ALL batch samples (WRONG!)
+
+    After: Each sample uses its
+    own stored subgoal (CORRECT!)
+  end note
+
+  [SafetyGoalLists] as Lists
+  note right of Lists
+    safe_states: []
+    unsafe_states: []
+    goal_states: []
+
+    Updated during episodes
+    Used for CBF/CLF training
+  end note
+}
+
+package "Integrated Training System" {
+  [FSMCBFCLFTrainer] as Trainer
+  note right of Trainer
+    Algorithm 2 Implementation
+
+    Components:
+    - FSM, Policy, CBF, CLF, Dynamics
+    - ReplayBuffer
+    - Optimizers for all
+    - Config (update frequencies)
+
+    training_episode(env, max_steps):
+      For each step k:
+        1. g_k <- fsm.get_current_subgoal()
+        2. a_k <- π(s_k, g_k) + noise
+        3. s_k+1, r_k <- env.step(a_k)
+        4. Label: is_safe, is_goal
+        5. buffer.push(..., subgoal=g_k)
+        6. Update safety/goal lists
+        7. FSM transition check
+
+        Periodic updates:
+        8. Every 5 steps: _update_dynamics()
+        9. Every 10 steps: _update_cbf()
+        10. Every 10 steps: _update_clf()
+        11. Every step: _update_policy()
+
+    _update_policy() KEY FIX:
+      batch = buffer.sample(batch_size)
+      states = batch['states']
+      subgoals = batch['subgoals']
+      ↑ Each sample has its OWN stored g!
+
+      rewards = batch['rewards']
+      policy.train_step(states, subgoals,
+                        rewards, use_model_free=False)
+  end note
+}
+
+package "Training Utilities" {
+  [PathSampleGenerator] as PathGen
+  note right of PathGen
+    Path-Aware CBF Training
+
+    generate_safe_path_samples(
+      env, start, waypoints)
+
+    Interpolates along FSM path
+    Adds noise for coverage
+    Labels as safe
+
+    Path: Start -> G3 -> G1 -> Goal
+    (17.1m through safe corridors)
+  end note
+
+  [TrainingMetrics] as Metrics
+  note right of Metrics
+    compute_training_metrics()
+
+    Tracks:
+    - Episode rewards
+    - Success rates
+    - Collision rates
+    - Subgoal progression
+  end note
+
+  [Visualization] as Viz
+  note right of Viz
+    plot_cbf_heatmap()
+    plot_clf_heatmap()
+    plot_training_progress()
+    plot_trajectory_sequence()
+
+    Diagnostics:
+    - Policy vector field
+    - Certificate functions
+    - State coverage
+  end note
+}
+
+package "FSM Pruning" {
+  [FSMPruner] as Pruner
+  note right of Pruner
+    Algorithm 1
+
+    prune(fsm) -> fsm'
+
+    1. Remove unsafe states:
+       sample around subgoals
+       check h(s) >= ε_safe
+
+    2. Remove infeasible transitions:
+       sample (s,a) along edge
+       check safety & feasibility
+
+    Returns: A'_φ = (Q', Σ, δ', q_0, q_f)
+  end note
+}
+
+package "Initial Dataset" {
+  [create_warehouse_dataset] as Dataset
+  note right of Dataset
+    2000 random transitions
+
+    Labels:
+    - is_safe (70%): outside obstacles
+    - is_unsafe (30%): in obstacles
+    - is_goal (2.5%): in goal regions
+
+    Used for:
+    - Pre-training CBF/CLF/Dynamics
+    - Initializing replay buffer
+  end note
+}
+
+' ============================================================================
+' DATA FLOW: TRAINING LOOP
+' ============================================================================
+
+Env --> Trainer : state, reward, info
+FSM --> Trainer : current subgoal g_k
+Trainer --> Policy : (state, subgoal)
+Policy --> Trainer : action
+Trainer --> Env : execute action
+Wrapper ..> Env : wraps
+Wrapper --> Trainer : shaped reward
+
+Trainer --> Buffer : push(s,a,s',r,done,g)
+Trainer --> Lists : append safe/unsafe/goal
+
+Buffer --> Trainer : sample() with subgoals
+Lists --> Trainer : safe/unsafe/goal states
+
+Trainer --> Dyn : _update_dynamics()
+Trainer --> CBF : _update_cbf()
+Trainer --> CLF : _update_clf()
+Trainer --> Policy : _update_policy()
+
+Dyn --> Policy : predict ŝ' for gradients
+CBF --> Policy : h(ŝ') penalty
+CLF --> Policy : V(ŝ') penalty
+
+' ============================================================================
+' BOOTSTRAP & AUGMENTATION
+' ============================================================================
+
+PathGen --> CBF : path_samples
+
+' ============================================================================
+' FSM PRUNING (Optional)
+' ============================================================================
+
+CBF --> Pruner : safety certificate
+CLF --> Pruner : feasibility certificate
+Dyn --> Pruner : dynamics model
+FSM --> Pruner : original FSM
+Pruner --> FSM : pruned FSM A'_φ
+
+' ============================================================================
+' BOOTSTRAP DATA
+' ============================================================================
+
+Dataset --> Buffer : initial transitions
+Dataset --> CBF : bootstrap safe/unsafe
+Dataset --> CLF : bootstrap goal states
+Dataset --> Dyn : bootstrap physics
+
+@enduml

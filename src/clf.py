@@ -14,11 +14,15 @@ import numpy as np
 
 class CLFNetwork(nn.Module):
     """
-    Neural Control Lyapunov Function.
+    Neural Control Lyapunov Function V(s)
     
     Learns V_ψ: S → R≥0 such that:
     (i)  V_ψ(s) = 0 if s ∈ G  (goal states)
     (ii) V_ψ(s_{k+1}) - V_ψ(s_k) ≤ -β V_ψ(s_k) + δ, β > 0
+
+    
+    - V(s) ≈ 0 implies at goal
+    - V(s) > 0 implies not at goal
     """
     
     def __init__(
