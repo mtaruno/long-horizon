@@ -197,47 +197,6 @@ from .environment import WarehouseEnvironment, Transition
             
 #         return reward
 
-
-def create_warehouse_dataset(num_transitions, env=None, goal_pos=None):
-    """
-    Generates a dataset of transitions using a random policy.
-    Based on Algorithm 3 from the paper.
-    """
-    if env is None:
-        env = WarehouseEnvironment()
-        
-    if goal_pos is None:
-        goal_pos = env.target_goal['center']
-
-    transitions = []
-    state, _ = env.reset()
-    
-    for _ in range(num_transitions):
-        # Sample a random action
-        action = env.action_space.sample() 
-        
-        next_state, reward, terminated, truncated, info = env.step(action)
-        is_done = terminated or truncated
-        
-        trans = Transition(
-            state=state,
-            action=action,
-            next_state=next_state,
-            reward=reward,
-            is_done=is_done,
-            is_safe=info['is_safe'],
-            is_goal=info['is_goal'],
-            goal=goal_pos # Store the goal context
-        )
-        transitions.append(trans)
-        
-        if is_done:
-            state, _ = env.reset()
-        else:
-            state = next_state
-            
-    return transitions
-
 def create_warehouse_dataset(num_transitions, env=None, goal_pos=None):
     """
     Generates a dataset of transitions using a random policy.

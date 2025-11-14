@@ -3,6 +3,7 @@ numpy>=1.21.0
 scipy>=1.7.0
 pyyaml>=6.0
 matplotlib
+gymnasium
 
 # high level planner
 ltlf2dfa
