@@ -9,14 +9,14 @@ import os
 # Custom modules
 from src.environment import WarehouseEnvironment, ReplayBuffer
 from src.dataset import create_warehouse_dataset, Transition
-from src.models import EnsembleDynamics
-from src.cbf import CBFNetwork
-from src.clf import CLFNetwork
+from src.core.models import EnsembleDynamics
+from src.core.cbf import CBFNetwork
+from src.core.clf import CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.planning.fsm_planner import FSMState, FSMTransition, FSMAutomaton, create_waypoint_fsm
 
 import matplotlib.pyplot as plt
-from src.visualization import EnvironmentVisualizer, FunctionVisualizer
+from src.utils.visualization import EnvironmentVisualizer, FunctionVisualizer
 
 
 # --- Hyperparameters ---

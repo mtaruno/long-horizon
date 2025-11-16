@@ -6,8 +6,8 @@ Goal-reaching component - essential for feasibility guarantees.
 import pytest
 import torch
 import numpy as np
-from src.clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
-from src.cbf import EnsembleCBF
+from src.core.clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
+from src.core.cbf import EnsembleCBF
 
 class TestCLFNetwork:
     """Test individual CLF network functionality."""

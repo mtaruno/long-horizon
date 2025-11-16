@@ -11,14 +11,13 @@ import torch.nn.functional as F
 from typing import Tuple, Optional, Dict, Any, List
 import numpy as np
 
-from .buffer import ReplayBuffer
+from ..utils.buffer import ReplayBuffer
 
 
 class DynamicsNetwork(nn.Module):
     """
     Neural network for learning dynamics model P̂(s_{k+1} | s_k, a_k).
     """
-    
     def __init__(
         self,
         state_dim: int,

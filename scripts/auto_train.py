@@ -11,7 +11,7 @@ import os
 from tqdm import tqdm
 
 # --- We are copying all imports here ---
-from src.environment.warehouse import WarehouseEnv
+from src.environment import WarehouseEnvironment
 from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy

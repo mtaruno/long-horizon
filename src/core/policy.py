@@ -4,7 +4,8 @@ Subgoal-conditioned policy π_θ(s, g) for FSM-guided control.
 
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any, Dict
+from src.core.critics import create_mlp, CBFNetwork, CLFNetwork
 
 class SubgoalConditionedPolicy(nn.Module):
     """
@@ -18,6 +19,7 @@ class SubgoalConditionedPolicy(nn.Module):
         state_dim: int,
         action_dim: int,
         subgoal_dim: int,
+        a_max: float, 
         hidden_dims: Tuple[int, ...] = (256, 256),
         activation: str = "relu",
         device: str = "cpu"
@@ -28,6 +30,7 @@ class SubgoalConditionedPolicy(nn.Module):
         self.action_dim = action_dim
         self.subgoal_dim = subgoal_dim
         self.device = device
+        self.a_max = a_max
         
         input_dim = state_dim + subgoal_dim
         
@@ -57,10 +60,19 @@ class SubgoalConditionedPolicy(nn.Module):
             subgoal: [batch_size, subgoal_dim]
             
         Returns:
-            action: [batch_size, action_dim]
+            action a_k: [batch_size, action_dim]
         """
         x = torch.cat([state, subgoal], dim=-1)
-        return self.network(x)
+        return self.a_max * self.network(x)
+    
+    def compute_loss(self,
+                     states: torch.Tensor,
+                     subgoals: torch.Tensor,
+                     cbf_net: CBFNetwork
+                     clf_net: CLFNetwork,
+                     config: Dict[str]
+                     ) -> torch.Tensor:
+        train_config = config['train']
 
 
 class PolicyTrainer:
@@ -91,13 +103,14 @@ class PolicyTrainer:
         self.epsilon = epsilon
         self.device = device
         
-    def train_step(
+    def compute_loss(
         self,
-        states: torch.Tensor,
-        subgoals: torch.Tensor,
-        rewards: torch.Tensor = None,
-        next_states: torch.Tensor = None,
-        use_model_free: bool = True
+        s: torch.Tensor,
+        g: torch.Tensor,
+        s_next_pred: torch.Tensor,
+        cbf_net: CBFNetwork,
+        clf_net: CLFNetwork,
+        config: Dict[str, Any],
     ) -> dict:
         """
         Single policy update step.
@@ -112,51 +125,35 @@ class PolicyTrainer:
         Returns:
             Dictionary of losses
         """
-        self.optimizer.zero_grad()
+        train_config = config['train']
+        # 1. CLF Loss (Task Progress)
+        # The actor's job is to minimize the Lyapunov function of the next state.
+        v_psi_next = clf_net(s_next_pred, g)
+        loss_clf_progress = torch.mean(v_psi_next) # Make V(s_next) as small as possible
+        
+        # --- THIS IS THE FINAL FIX ---
+        # 2. CBF Penalty (Safety)
+        # We penalize the *violation of the CBF constraint*, not just being unsafe.
+        # This gives the agent a gradient to follow to "steer away" from danger.
+        # Rule: h(s_next) - (1 - alpha) * h(s) >= 0
+        # Violation: -( h(s_next) - (1 - alpha) * h(s) )
+        
+        h_phi = cbf_net(s).detach() # Get current safety, no gradient
+        h_phi_next = cbf_net(s_next_pred)
+        alpha = train_config['cbf_alpha']
 
-        # Get policy action
-        actions = self.policy(states, subgoals)
+        constraint_violation = h_phi_next - (1 - alpha) * h_phi
+        penalty_cbf_constraint = torch.mean(torch.relu(-constraint_violation) ** 2)
+        # --- END FIX ---
 
-        # Get next states: use actual if available (model-free), else predict (model-based)
-        if use_model_free and next_states is not None:
-            # MODEL-FREE: Use actual transitions from environment
-            predicted_next = next_states
-        else:
-            # MODEL-BASED: Predict next state (has model bias)
-            predicted_next = self.dynamics(states, actions)
-
-        # Subgoal distance loss (drive toward subgoal)
-        # Use position only for subgoal (first 2 dims), ignore velocity
-        subgoal_loss = torch.mean((predicted_next[:, :2] - subgoals[:, :2]) ** 2) * 5.0
-
-        # CBF penalty: Strict constraint (penalize h < 0)
-        h_values = self.cbf(predicted_next).squeeze(-1)
-        cbf_violation = torch.clamp(-h_values, min=0.0)  # Penalty when unsafe
-        cbf_penalty = self.lambda_cbf * torch.mean(cbf_violation ** 2)
-
-        # CLF penalty: λ_clf·[max(0, V(ŝ') - ε)]²
-        V_values = self.clf(predicted_next).squeeze(-1)
-        clf_penalty = self.lambda_clf * torch.mean(torch.clamp(V_values - self.epsilon, min=0.0) ** 2)
-
-        # Reward-based loss: MUCH STRONGER WEIGHT
-        reward_loss = 0.0
-        if rewards is not None:
-            # Normalize rewards to prevent scale issues
-            normalized_rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-            # Negative reward as loss (maximize reward = minimize negative reward)
-            reward_loss = -torch.mean(normalized_rewards) * 2.0  # Increased from 0.01!
-
-        # Total loss
-        total_loss = subgoal_loss + cbf_penalty + clf_penalty + reward_loss
-
-        total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)  # Gradient clipping
-        self.optimizer.step()
-
-        return {
-            "total": total_loss.item(),
-            "subgoal": subgoal_loss.item(),
-            "cbf_penalty": cbf_penalty.item(),
-            "clf_penalty": clf_penalty.item(),
-            "reward_loss": reward_loss if isinstance(reward_loss, float) else reward_loss.item()
+        # Total Loss
+        loss = (loss_clf_progress + 
+                train_config['lambda_cbf'] * penalty_cbf_constraint)
+                
+        metrics = {
+            'actor_loss': loss.item(),
+            'actor_loss_clf_progress': loss_clf_progress.item(),
+            'actor_penalty_cbf_constraint': penalty_cbf_constraint.item(),
         }
+        
+        return loss, metrics

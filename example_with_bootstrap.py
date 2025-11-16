@@ -6,9 +6,9 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from src.cbf import EnsembleCBF
-from src.clf import EnsembleCLF
-from src.models import EnsembleDynamics, ReplayBuffer
+from src.core.cbf import EnsembleCBF
+from src.core.clf import EnsembleCLF
+from src.core.models import EnsembleDynamics, ReplayBuffer
 from src.core.policy import SubgoalConditionedPolicy
 from src.planning.fsm_planner import FSMState, FSMTransition, FSMAutomaton
 from src.training.integrated_trainer import FSMCBFCLFTrainer

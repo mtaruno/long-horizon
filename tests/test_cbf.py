@@ -6,7 +6,7 @@ Safety-critical component - highest testing priority.
 import pytest
 import torch
 import numpy as np
-from src.cbf import CBFNetwork, EnsembleCBF, CBFTrainer
+from src.core.cbf import CBFNetwork, EnsembleCBF, CBFTrainer
 
 class TestCBFNetwork:
     """Test individual CBF network functionality."""
