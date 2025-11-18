@@ -8,8 +8,6 @@ from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.models import EnsembleDynamicsModel
 
 
-
-
 class FSMAutomaton:
     """
     Implements the Finite State Machine (FSM) planner.

@@ -10,13 +10,18 @@ class SubgoalConditionedPolicy(nn.Module):
     Outputs a deterministic action [a, omega],
     each scaled to [-1, 1] by a Tanh.
     """
-    def __init__(self, 
-                 state_dim: int, 
-                 subgoal_dim: int, 
-                 action_dim: int, 
-                 hidden_dims: List[int],
-                 a_max: float,
-                 omega_max: float): 
+    
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        subgoal_dim: int,
+        a_max: float, 
+        omega_max: float,
+        hidden_dims: Tuple[int, ...] = (256, 256),
+        activation: str = "relu",
+        device: str = "cpu"
+    ):
         super().__init__()
         
         self.a_max = a_max
