@@ -7,7 +7,7 @@ import random
 import os 
 
 # Custom modules
-from src.environment import WarehouseEnvironment, ReplayBuffer
+from src.environment import WarehouseEnv, ReplayBuffer
 from src.dataset import create_warehouse_dataset, Transition
 from src.core.models import EnsembleDynamics
 from src.core.cbf import CBFNetwork
@@ -209,7 +209,7 @@ def update_certificates(cbf, clf, optimizer_cbf, optimizer_clf, replay_buffer, e
 # --- Main Function ---
 def main():
     print(f"Starting training on {DEVICE}...")
-    env = WarehouseEnvironment()
+    env = WarehouseEnv()
 
     # Use waypoint-based FSM for better navigation
     fsm, fsm_goal_pos, waypoints = create_waypoint_fsm(env)

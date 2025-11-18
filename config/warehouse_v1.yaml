@@ -4,28 +4,29 @@
 # Environment Config
 # -----------------
 env:
-  workspace: [12.0, 10.0]  # Width (x), Height (y) in meters
-  dt: 0.1                  # Time step (seconds)
-  v_max: 1.0               # Max velocity (m/s)
-  a_max: 2.0               # Max acceleration (m/s^2), derived from v_max
-  robot_radius: 0.15       # Safety margin for robot
+  workspace: [12.0, 10.0]
+  dt: 0.1
+  v_max: 1.5               # Max linear velocity (m/s)
+  a_max: 3.0               # Max linear acceleration (m/s^2)
+  omega_max: 1.57          # Max angular velocity (rad/s) (90 deg/s)
+  robot_radius: 0.15
 
 # -----------------
 # Data Generation (Alg 3)
 # -----------------
 data_gen:
-  num_transitions: 20000
-  num_episodes: 500
+  num_transitions: 30000
+  num_episodes: 1000
   max_episode_length: 100
   sampling_mix:
-    uniform: 0.3         # 30% uniform exploration
-    boundary: 0.4        # 40% near-boundary sampling
-    policy: 0.3          # 30% policy rollouts (if policy exists)
+    uniform: 0.3
+    boundary: 0.4
+    policy: 0.3
   rejection_ratios:
-    safe: 0.90           # Target 90% safe states
-    unsafe: 0.10         # Target 10% unsafe states
-    goal: 0.05           # Target 5% goal states
-  data_path: "data/pretrain_data.pkl" # Where to save the dataset
+    safe: 0.90
+    unsafe: 0.10
+    goal: 0.05
+  data_path: "data/pretrain_data.pkl"
 
 # -----------------
 # Pre-Training (Phase 1)
@@ -49,8 +50,8 @@ train:
   model_save_path: "models/best/"
   
   # Loop
-  num_episodes: 2000       # This will be overridden by Optuna
-  max_episode_length: 200
+  num_episodes: 2000 # This will be overridden by HPO
+  max_episode_length: 200 # Max steps *per subgoal*
   buffer_size: 100000
   
   # Updates
@@ -69,6 +70,7 @@ train:
   
   # Loss Weights (Placeholders for Optuna)
   lambda_cbf: 1000.0
+  lambda_mf: 0.5
   
   # CBF Loss (Eq 5)
   cbf_alpha: 0.1
@@ -98,8 +100,8 @@ fsm:
 # Network Architectures
 # -----------------
 nn:
-  state_dim: 4
-  action_dim: 2
-  subgoal_dim: 2
+  state_dim: 5             # [x, y, cos(theta), sin(theta), v]
+  action_dim: 2            # [a, omega]
+  subgoal_dim: 2           # [gx, gy]
   hidden_dims: [256, 256, 256]
   num_ensemble: 5

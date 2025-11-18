@@ -8,6 +8,125 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from typing import List, Optional, Tuple, Dict
 import torch
+import imageio
+import torch
+from typing import List, Dict, Any
+
+from src.environment.warehouse import WarehouseEnv
+from src.core.critics import CBFNetwork, CLFNetwork
+
+def plot_critic_landscapes(env: WarehouseEnv, 
+                             cbf_net: CBFNetwork, 
+                             clf_net: CLFNetwork,
+                             goal: np.ndarray,
+                             device: torch.device,
+                             filename: str):
+    """
+    Generates and saves heatmap visualizations for CBF and CLF.
+    """
+    print(f"Generating critic landscapes and saving to {filename}...")
+    
+    # Create a grid of points
+    w = env.workspace[0]
+    h = env.workspace[1]
+    x = np.linspace(0, w, 100)
+    y = np.linspace(0, h, 100)
+    xx, yy = np.meshgrid(x, y)
+    
+    # --- THIS IS THE FIX ---
+    # Create 5D states: [x, y, cos(theta), sin(theta), v]
+    # We assume the robot is facing right (theta=0) and stopped (v=0)
+    # for the visualization.
+    states_np = np.zeros((xx.size, 5)) # New state_dim is 5
+    states_np[:, 0] = xx.ravel()       # x
+    states_np[:, 1] = yy.ravel()       # y
+    states_np[:, 2] = 1.0              # cos(0) = 1
+    states_np[:, 3] = 0.0              # sin(0) = 0
+    states_np[:, 4] = 0.0              # v = 0
+    # --- END FIX ---
+    
+    # Get ground truth
+    h_star = env.get_ground_truth_safety(states_np).reshape(xx.shape)
+    v_star = env.get_ground_truth_feasibility(states_np, goal).reshape(xx.shape)
+
+    # Get network predictions
+    states_torch = torch.from_numpy(states_np).float().to(device)
+    goal_torch = torch.from_numpy(goal).float().to(device).repeat(states_torch.shape[0], 1)
+    
+    with torch.no_grad():
+        h_phi = cbf_net(states_torch).cpu().numpy().reshape(xx.shape)
+        v_psi = clf_net(states_torch, goal_torch).cpu().numpy().reshape(xx.shape)
+        
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Critic Landscapes vs. Ground Truth")
+
+    # h_star (Ground Truth CBF)
+    ax = axes[0, 0]
+    c_h_star = ax.contourf(xx, yy, h_star, levels=20, cmap='RdBu')
+    ax.contour(xx, yy, h_star, levels=[0.0], colors='k', linewidths=2) # 0-level
+    fig.colorbar(c_h_star, ax=ax)
+    ax.set_title("h* (Ground Truth Safety)")
+    env.render(ax, goal=goal, nn_state=states_np[0]) # Pass a dummy state for render setup
+
+    # h_phi (Learned CBF)
+    ax = axes[0, 1]
+    c_h_phi = ax.contourf(xx, yy, h_phi, levels=20, cmap='RdBu')
+    ax.contour(xx, yy, h_phi, levels=[0.0], colors='k', linewidths=2)
+    fig.colorbar(c_h_phi, ax=ax)
+    ax.set_title("h_phi (Learned CBF)")
+    env.render(ax, goal=goal, nn_state=states_np[0])
+
+    # v_star (Ground Truth CLF)
+    ax = axes[1, 0]
+    c_v_star = ax.contourf(xx, yy, v_star, levels=20, cmap='viridis_r')
+    fig.colorbar(c_v_star, ax=ax)
+    ax.set_title("V* (Ground Truth Feasibility)")
+    env.render(ax, goal=goal, nn_state=states_np[0])
+
+    # v_psi (Learned CLF)
+    ax = axes[1, 1]
+    c_v_psi = ax.contourf(xx, yy, v_psi, levels=20, cmap='viridis_r')
+    fig.colorbar(c_v_psi, ax=ax)
+    ax.set_title("V_psi (Learned CLF)")
+    env.render(ax, goal=goal, nn_state=states_np[0])
+    
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close(fig)
+    print("... landscapes saved.")
+
+def create_evaluation_animation(env: WarehouseEnv, 
+                                path: List[np.ndarray], 
+                                goal: np.ndarray, 
+                                filename: str):
+    """
+    Saves an animated GIF of the robot's trajectory.
+    """
+    print(f"Creating evaluation animation at {filename}...")
+    frames = []
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    for i, state in enumerate(path):
+        # Render the environment
+        env.render(ax, nn_state=state, goal=goal, path=np.array(path[:i+1]))
+        ax.set_title(f"Evaluation Step {i+1}/{len(path)}")
+        
+        # Save frame to buffer
+        fig.canvas.draw()
+        
+        # Use tostring_argb() and reshape to 4 channels, then slice off the alpha
+        buffer_rgba = fig.canvas.tostring_argb()
+        image = np.frombuffer(buffer_rgba, dtype='uint8')
+        image = image.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        frames.append(image[:, :, :3]) # Slice off the alpha channel
+        
+    plt.close(fig)
+    
+    # Save as GIF
+    imageio.mimsave(filename, frames, fps=10) # 10 frames per second
+    print("... animation saved.")
+
 
 
 class EnvironmentVisualizer:
@@ -397,7 +516,7 @@ def plot_side_by_side(env, cbf=None, clf=None, figsize=(16, 7)):
     Plot CBF and CLF side by side.
 
     Args:
-        env: WarehouseEnvironment
+        env: WarehouseEnv
         cbf: CBF network (optional)
         clf: CLF network (optional)
         figsize: Figure size

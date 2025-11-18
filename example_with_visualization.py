@@ -19,13 +19,13 @@ from src.core.policy import SubgoalConditionedPolicy
 from src.planning.fsm_planner import FSMState, FSMTransition, FSMAutomaton
 from src.training.integrated_trainer import FSMCBFCLFTrainer
 from src.dataset import create_warehouse_dataset
-from src.environment import WarehouseEnvironment
+from src.environment import WarehouseEnv
 
 
 class TrainingVisualizer:
     """Real-time visualization of training progress."""
 
-    def __init__(self, env: WarehouseEnvironment, output_dir: str = "visualizations"):
+    def __init__(self, env: WarehouseEnv, output_dir: str = "visualizations"):
         self.env = env
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
@@ -293,8 +293,7 @@ def main():
     subgoal_dim = 2
     device = "cpu"
 
-    # Create environment (using actual WarehouseEnvironment)
-    env = WarehouseEnvironment()
+    env = WarehouseEnv()
     visualizer = TrainingVisualizer(env)
 
     # Create buffer and models

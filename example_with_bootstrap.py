@@ -13,7 +13,7 @@ from src.core.policy import SubgoalConditionedPolicy
 from src.planning.fsm_planner import FSMState, FSMTransition, FSMAutomaton
 from src.training.integrated_trainer import FSMCBFCLFTrainer
 from src.dataset import create_warehouse_dataset
-from src.environment import WarehouseEnvironment
+from src.environment import WarehouseEnv
 
 
 def load_dataset_into_buffer(buffer):
