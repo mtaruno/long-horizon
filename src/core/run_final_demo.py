@@ -6,12 +6,12 @@ import numpy as np
 import os
 from typing import List
 
-from src.environment import WarehouseEnvironment
+from src.environment import WarehouseEnv
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.models import DynamicsModel
 from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL
-from src.utils.visualize import plot_critic_landscapes, create_evaluation_animation
+from src.utils.visualization import plot_critic_landscapes, create_evaluation_animation
 from src.utils.seeding import set_seed
 
 def run_final_demo():
