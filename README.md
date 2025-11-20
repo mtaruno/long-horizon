@@ -1,6 +1,6 @@
 # Long-Horizon Safe & Feasible Planning
 
-This is a modular framework using Pytorch that enables long-horizon navigation in a warehouse environment using an LTL-to-FSM planner combined with CBF/CLF-guided policy learning. 
+This is a modular framework using Pytorch that enables long-horizon navigation in a warehouse environment using an LTL-to-FSM planner combined with CBF/CLF-guided policy learning. The paper is in progress of being written and will be linked here soon.
 
 ## Overview
 Project structure:
