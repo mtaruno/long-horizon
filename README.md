@@ -1,86 +1,79 @@
 # Long-Horizon Safe & Feasible Planning
 
-A PyTorch implementation of neural Control Barrier Functions (CBFs) and Control Lyapunov Functions (CLFs) for safe and feasible long-horizon planning in robotics.
+This is a modular framework using Pytorch that enables long-horizon navigation in a warehouse environment using an LTL-to-FSM planner combined with CBF/CLF-guided policy learning. 
 
 ## Overview
-
-This framework learns safety and feasibility constraints from data to enable safe robot control over long horizons. It combines three key components:
-- **Neural CBFs** - Learn safety constraints to avoid unsafe states
-- **Neural CLFs** - Learn feasibility constraints to reach goal states
-- **Ensemble Dynamics** - Learn system dynamics with uncertainty quantification
-
-## Key Features
-- **Real-time Safety**: CBF-CLF controller filters unsafe actions
-- **Uncertainty-Aware**: Ensemble models provide epistemic uncertainty
-- **Minimal Integration**: Drop-in safety layer for existing policies
-- **Isaac Gym Ready**: Designed for parallel simulation environments
-
-## Quick Start
-
-```bash
-# Setup
-./setup.sh
-source venv/bin/activate
-
-# Run example
-python example.py
+Project structure:
+```
+long-horizon-planning/
+├── config/                # Hyperparameters and environment settings
+├── data/                  # Generated datasets
+├── models/                # Saved model checkpoints (.pth)
+├── scripts/               # Executable entry points (training, evaluation)
+└── src/                   # Core source code
+    ├── core/             # Neural network architectures
+    ├── environment/      # Physics, dynamics, and simulation
+    ├── planning/         # High-level FSM planning logic
+    └── utils/            # Buffers, logging, seeding helpers
 ```
 
-## Usage
-```python
-from src import create_trainer
+## Key Modules:
 
-# Create trainer
-trainer = create_trainer(state_dim=4, action_dim=2)
+### Environment (src/environment/)
+- warehouse.py: Defines the warehouse simulation environment.
 
-# Add training data
-trainer.add_transition(
-    state=state, action=action, next_state=next_state,
-    is_safe=True, is_goal=False
-)
+Main Components
+- Dynamics Model: Unicycle model
+State: x, y, θ, v
+- State Representation: 5D vector → `[x, y, cos(θ), sin(θ), v]`
+- Action Space: 2D vector → `[linear_acceleration, angular_velocity]`
+- Ground Truth Functions:
+- `get_ground_truth_safety()` — Signed Distance Fields (SDF)
+- `get_ground_truth_feasibility()` — Euclidean distance-based feasibility
 
-# Get safe actions
-safe_action = trainer.get_safe_action(state, proposed_action)
-```
+### Core Networks (src/core/)
 
-## Isaac Gym Integration
+`critics.py`
+Implements:
+- CBFNetwork (safety critic)
+- CLFNetwork (feasibility critic)
 
-```python
-# In your training loop
-for step in range(max_steps):
-    obs = env.get_observations()
-    actions = policy(obs)
+`policy.py`
+Implements the SubgoalConditionedPolicy, featuring:
+- Dual-constraint loss:
+- Model-based gradients from dynamics ensemble
+- Model-free gradients from real experience
+
+`models.py`
+Implements the EnsembleDynamicsModel:
+- Ensemble of 5 neural networks for next-state prediction
+- Used for uncertainty estimation & model-based training signals
+
+### Planning (src/planning/)
+`fsm_planner.py`
+Implements the Hierarchical FSM planner
+
+FSM Structure
+`START → WAYPOINT_1 → GOAL`
+
+Key Function — `prune_fsm_with_certificates()`
+- Samples states and checks CBF/CLF certificates
+- Transition kept only if ≥ 75% of samples pass safety + feasibility tests
+
+## Execution Scripts
+
+Execution Scripts (scripts/)
+1.	generate_data.py: Generates pretraining dataset → `data/pretrain_data.pkl`.
+2.	pretrain.py: Pretrains the CBF/CLF networks using offline samples.
+3.	hpo_trainer.py: (Currently failing) Optuna-based hyperparameter search.
+4.	evaluate.py: Loads champion model from models/best/ and runs visual demos.
     
-    # Filter through safety constraints
-    safe_actions = trainer.get_safe_action(obs, actions)
-    
-    next_obs, rewards, dones, info = env.step(safe_actions)
-    
-    # Learn constraints from simulation
-    trainer.add_transition(
-        state=obs.cpu().numpy(),
-        action=safe_actions.cpu().numpy(),
-        next_state=next_obs.cpu().numpy(),
-        is_safe=~info['collision'],
-        is_goal=info['success']
-    )
-```
+Run this as: `python -m scripts.hpo_trainer`
 
-
-
-## Architecture
-
-```
-Environment → CBF-CLF Controller → Safe Actions
-     ↓              ↑
-Training Data → Constraint Learning
-     ↓              ↑
-Dynamics Model ← Uncertainty Estimation
-```
-
-## Components
-- `cbf.py` - Control Barrier Functions for safety
-- `clf.py` - Control Lyapunov Functions for feasibility  
-- `models.py` - Ensemble dynamics learning
-- `main_trainer.py` - Integrated training framework
-- `example.py` - Usage demonstration
+### Configuration (config/)
+`warehouse_v1.yaml` — Single source of truth for entire pipeline.
+Includes:
+- Physics limits: v_max, omega_max
+- Loss weights: lambda_cbf, lambda_clf
+- Network sizes and training hyperparameters
+- Reward/penalty shaping parameters
