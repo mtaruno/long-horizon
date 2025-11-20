@@ -1,0 +1,37 @@
+@startuml Data Flow Diagram
+
+!theme plain
+skinparam backgroundColor white
+
+actor "Environment" as env
+participant "SafeFeasibleTrainer" as trainer
+participant "CBF Ensemble" as cbf
+participant "CLF Ensemble" as clf
+participant "Dynamics Ensemble" as dynamics
+participant "CBF-CLF Controller" as controller
+
+== Training Phase ==
+env -> trainer : add_transition(state, action, next_state, is_safe, is_goal)
+trainer -> trainer : store labeled data
+trainer -> dynamics : update model (every 5 steps)
+trainer -> cbf : update safety constraints (every 10 steps)
+trainer -> clf : update feasibility constraints (every 10 steps)
+
+== Control Phase ==
+env -> trainer : get_safe_action(state, proposed_action)
+trainer -> controller : filter_action()
+controller -> dynamics : predict next_state
+controller -> cbf : check safety constraint
+controller -> clf : check feasibility constraint
+controller -> trainer : safe_action
+trainer -> env : safe_action
+
+== Learning Loop ==
+note over trainer
+  Continuous learning:
+  • Dynamics uncertainty ↓
+  • Safety violations ↓  
+  • Goal reachability ↑
+end note
+
+@enduml

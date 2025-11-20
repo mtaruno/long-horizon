@@ -1,0 +1,17 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+
+Environment -> SafeFeasibleTrainer : observations
+SafeFeasibleTrainer -> CBFCLFController : state, action
+CBFCLFController -> Environment : safe_action
+
+SafeFeasibleTrainer -> EnsembleCBF : train safety
+SafeFeasibleTrainer -> EnsembleCLF : train feasibility  
+SafeFeasibleTrainer -> EnsembleDynamics : train dynamics
+
+CBFCLFController -> EnsembleCBF : check safety
+CBFCLFController -> EnsembleCLF : check feasibility
+CBFCLFController -> EnsembleDynamics : predict next state
+
+@enduml

@@ -1,0 +1,53 @@
+@startuml
+!pragma useVerticalIf on
+
+title Long-Horizon Safe Planning Architecture
+
+rectangle "Environment" as env {
+  [Isaac Gym]
+  [Robot State]
+  [Actions]
+}
+
+rectangle "SafeFeasibleTrainer" as trainer {
+  [add_transition()]
+  [get_safe_action()]
+  [evaluate_safety()]
+}
+
+rectangle "Safety (CBF)" as cbf {
+  [EnsembleCBF]
+  [CBFNetwork x3]
+  [h(s) >= 0 for safe]
+}
+
+rectangle "Feasibility (CLF)" as clf {
+  [EnsembleCLF] 
+  [CLFNetwork x3]
+  [V(s) = 0 for goals]
+}
+
+rectangle "Dynamics" as dyn {
+  [EnsembleDynamics]
+  [DynamicsNetwork x5]
+  [Uncertainty Estimation]
+}
+
+rectangle "Controller" as ctrl {
+  [CBFCLFController]
+  [filter_action()]
+}
+
+env --> trainer : observations
+trainer --> ctrl : state, action
+ctrl --> env : safe_action
+
+trainer --> cbf : safe/unsafe states
+trainer --> clf : goal states  
+trainer --> dyn : transitions
+
+ctrl --> cbf : check safety
+ctrl --> clf : check feasibility
+ctrl --> dyn : predict next state
+
+@enduml

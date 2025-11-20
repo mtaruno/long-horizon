@@ -1,0 +1,107 @@
+# config/warehouse_v1.yaml
+
+# -----------------
+# Environment Config
+# -----------------
+env:
+  workspace: [12.0, 10.0]
+  dt: 0.1
+  v_max: 1.5               # Max linear velocity (m/s)
+  a_max: 3.0               # Max linear acceleration (m/s^2)
+  omega_max: 1.57          # Max angular velocity (rad/s) (90 deg/s)
+  robot_radius: 0.15
+
+# -----------------
+# Data Generation (Alg 3)
+# -----------------
+data_gen:
+  num_transitions: 30000
+  num_episodes: 1000
+  max_episode_length: 100
+  sampling_mix:
+    uniform: 0.3
+    boundary: 0.4
+    policy: 0.3
+  rejection_ratios:
+    safe: 0.90
+    unsafe: 0.10
+    goal: 0.05
+  data_path: "data/pretrain_data.pkl"
+
+# -----------------
+# Pre-Training (Phase 1)
+# -----------------
+pretrain:
+  batch_size: 256
+  epochs: 50
+  lr: 0.001
+  model_save_path: "models/checkpoints/"
+  cbf_model_name: "cbf_anchored.pth"
+  clf_model_name: "clf_anchored.pth"
+
+# -----------------
+# Main Training (Alg 2)
+# -----------------
+train:
+  # Paths
+  load_anchored_models: true
+  anchored_cbf_path: "models/checkpoints/cbf_anchored.pth"
+  anchored_clf_path: "models/checkpoints/clf_anchored.pth"
+  model_save_path: "models/best/"
+  
+  # Loop
+  num_episodes: 2000 # This will be overridden by HPO
+  max_episode_length: 200 # Max steps *per subgoal*
+  buffer_size: 100000
+  
+  # Updates
+  batch_size: 256
+  model_update_freq: 50
+  cbf_update_freq: 50
+  clf_update_freq: 50
+  policy_update_freq: 10
+  
+  # Hyperparameters (Placeholders for Optuna)
+  gamma: 0.99
+  lr_actor: 0.0001
+  lr_critic: 0.0001
+  lr_dynamics: 0.0001
+  exploration_noise: 0.1
+  
+  # Loss Weights (Placeholders for Optuna)
+  lambda_cbf: 1000.0
+  lambda_mf: 0.5
+  
+  # CBF Loss (Eq 5)
+  cbf_alpha: 0.1
+  cbf_w_safe: 1.0
+  cbf_w_unsafe: 10.0
+  cbf_w_constraint: 5.0
+  
+  # CLF Loss (Eq 9)
+  clf_beta: 0.1
+  clf_delta: 0.01
+  clf_epsilon: 0.25        # Keep our larger goal (50cm radius)
+  clf_w_goal: 10.0
+  clf_w_constraint: 5.0
+  clf_w_positive: 1.0
+
+# -----------------
+# FSM & Evaluation (Alg 1)
+# -----------------
+fsm:
+  start_state: [1.0, 1.0]
+  goal_state: [10.5, 8.5]
+  pruning_samples: 200
+  safe_margin: 0.0
+  feas_margin: 0.05
+
+# -----------------
+# Network Architectures
+# -----------------
+nn:
+  state_dim: 5             # [x, y, cos(theta), sin(theta), v]
+  action_dim: 2            # [a, omega]
+  subgoal_dim: 2           # [gx, gy]
+  hidden_dims: [256, 256, 256]
+  num_ensemble: 5
