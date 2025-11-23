@@ -9,10 +9,8 @@ import matplotlib.patches as patches
 from typing import List, Optional, Tuple, Dict
 import torch
 import imageio
-import torch
-from typing import List, Dict, Any
 
-from src.environment.warehouse import WarehouseEnv
+from src.environment.warehouse import WarehouseEnv, CircleObstacle, BoxObstacle
 from src.core.critics import CBFNetwork, CLFNetwork
 
 def plot_critic_landscapes(env: WarehouseEnv, 
@@ -33,7 +31,6 @@ def plot_critic_landscapes(env: WarehouseEnv,
     y = np.linspace(0, h, 100)
     xx, yy = np.meshgrid(x, y)
     
-    # --- THIS IS THE FIX ---
     # Create 5D states: [x, y, cos(theta), sin(theta), v]
     # We assume the robot is facing right (theta=0) and stopped (v=0)
     # for the visualization.
@@ -43,7 +40,6 @@ def plot_critic_landscapes(env: WarehouseEnv,
     states_np[:, 2] = 1.0              # cos(0) = 1
     states_np[:, 3] = 0.0              # sin(0) = 0
     states_np[:, 4] = 0.0              # v = 0
-    # --- END FIX ---
     
     # Get ground truth
     h_star = env.get_ground_truth_safety(states_np).reshape(xx.shape)
@@ -127,8 +123,6 @@ def create_evaluation_animation(env: WarehouseEnv,
     imageio.mimsave(filename, frames, fps=10) # 10 frames per second
     print("... animation saved.")
 
-
-
 class EnvironmentVisualizer:
     """Visualize warehouse environment and robot trajectories."""
 
@@ -141,14 +135,15 @@ class EnvironmentVisualizer:
         """
         self.env = env
 
-    def plot_environment(self, ax=None, figsize=(14, 12), show_labels=True):
+    def plot_environment(self, ax=None, figsize=(14, 12), show_labels=True, goal=None):
         """
         Plot the warehouse environment layout.
 
         Args:
             ax: Matplotlib axis (creates new if None)
             figsize: Figure size if creating new figure
-            show_labels: Whether to show obstacle/goal labels
+            show_labels: Whether to show obstacle labels
+            goal: Optional goal position [x, y] to plot as a circle
 
         Returns:
             fig, ax: Matplotlib figure and axis
@@ -159,64 +154,70 @@ class EnvironmentVisualizer:
             fig = ax.figure
 
         # Set limits and style
-        ax.set_xlim(-0.5, self.env.bounds[0] + 0.5)
-        ax.set_ylim(-0.5, self.env.bounds[1] + 0.5)
+        ax.set_xlim(-0.5, self.env.workspace[0] + 0.5)
+        ax.set_ylim(-0.5, self.env.workspace[1] + 0.5)
         ax.set_aspect('equal')
         ax.grid(True, alpha=0.3, linestyle='--')
 
-        # Draw obstacles
+        # Draw obstacles using their plot method
         for i, obs in enumerate(self.env.obstacles):
-            circle = patches.Circle(
-                obs['center'], obs['radius'],
-                color='red', alpha=0.6, edgecolor='darkred', linewidth=2,
-                label='Obstacles' if i == 0 else ""
-            )
-            ax.add_patch(circle)
-
+            # Use the obstacle's own plot method
+            obs.plot(ax)
+            
             if show_labels:
-                ax.text(obs['center'][0], obs['center'][1], f'O{i}',
-                       ha='center', va='center', fontsize=9,
-                       fontweight='bold', color='white')
+                # Add labels based on obstacle type
+                if isinstance(obs, CircleObstacle):
+                    center = obs.center
+                    ax.text(center[0], center[1], f'O{i}',
+                           ha='center', va='center', fontsize=9,
+                           fontweight='bold', color='white', zorder=5)
+                elif isinstance(obs, BoxObstacle):
+                    center = obs.center
+                    ax.text(center[0], center[1], f'O{i}',
+                           ha='center', va='center', fontsize=9,
+                           fontweight='bold', color='white', zorder=5)
 
-        # Draw goal regions
-        for i, goal in enumerate(self.env.goals):
-            circle = patches.Circle(
-                goal['center'], goal['radius'],
+        # Draw goal region if provided
+        if goal is not None:
+            # Get goal radius from config if available
+            if hasattr(self.env, 'full_config') and 'train' in self.env.full_config:
+                clf_epsilon = self.env.full_config['train'].get('clf_epsilon', 0.25)
+                goal_radius = np.sqrt(clf_epsilon)
+            else:
+                goal_radius = 0.5  # Default radius
+            
+            goal_circle = patches.Circle(
+                goal[:2], goal_radius,
                 color='green', alpha=0.5, edgecolor='darkgreen', linewidth=2,
-                label='Goals' if i == 0 else ""
+                label='Goal', zorder=3
             )
-            ax.add_patch(circle)
-
+            ax.add_patch(goal_circle)
+            
             if show_labels:
-                ax.text(goal['center'][0], goal['center'][1], f'G{i}',
+                ax.text(goal[0], goal[1], 'G',
                        ha='center', va='center', fontsize=11,
-                       fontweight='bold', color='white')
+                       fontweight='bold', color='white', zorder=5)
 
         # Labels
         ax.set_xlabel('X Position (meters)', fontsize=13, fontweight='bold')
         ax.set_ylabel('Y Position (meters)', fontsize=13, fontweight='bold')
 
         # Grid ticks
-        ax.set_xticks(np.arange(0, self.env.bounds[0]+1, 2))
-        ax.set_yticks(np.arange(0, self.env.bounds[1]+1, 2))
+        ax.set_xticks(np.arange(0, self.env.workspace[0]+1, 2))
+        ax.set_yticks(np.arange(0, self.env.workspace[1]+1, 2))
 
         return fig, ax
     
     def plot_dataset(self, transitions: List):
         env = self.env
         fig, ax = plt.subplots(figsize=(14, 12))
-        ax.set_xlim(-0.5, env.bounds[0] + 0.5)
-        ax.set_ylim(-0.5, env.bounds[1] + 0.5)
+        ax.set_xlim(-0.5, env.workspace[0] + 0.5)
+        ax.set_ylim(-0.5, env.workspace[1] + 0.5)
         ax.set_aspect('equal')
         ax.grid(True, alpha=0.3)
         # Draw environment (should now match dataset!)
         for obs in env.obstacles:
-            circle = patches.Circle(obs['center'], obs['radius'], color='red', alpha=0.3, edgecolor='darkred', linewidth=2)
-            ax.add_patch(circle)
-
-        for goal in env.goals:
-            circle = patches.Circle(goal['center'], goal['radius'], color='green', alpha=0.2, edgecolor='darkgreen', linewidth=2)
-            ax.add_patch(circle)
+            obs.plot(ax)
 
         # Plot states with correct labels
         safe_positions = [t.state[:2] for t in transitions if t.is_safe and not t.is_goal]
@@ -346,7 +347,7 @@ class FunctionVisualizer:
 
     def __init__(self, env):
         """
-        Initialize with environment for bounds.
+        Initialize with environment for workspace.
 
         Args:
             env: WarehouseEnvironment instance
@@ -373,8 +374,8 @@ class FunctionVisualizer:
             fig = ax.figure
 
         # Create grid
-        x = np.linspace(0, self.env.bounds[0], resolution)
-        y = np.linspace(0, self.env.bounds[1], int(resolution * self.env.bounds[1] / self.env.bounds[0]))
+        x = np.linspace(0, self.env.workspace[0], resolution)
+        y = np.linspace(0, self.env.workspace[1], int(resolution * self.env.workspace[1] / self.env.workspace[0]))
         X, Y = np.meshgrid(x, y)
 
         # Evaluate CBF
@@ -394,9 +395,7 @@ class FunctionVisualizer:
 
         # Overlay obstacles
         for obs in self.env.obstacles:
-            circle = patches.Circle(obs['center'], obs['radius'],
-                                   color='red', alpha=0.4, edgecolor='darkred', linewidth=2)
-            ax.add_patch(circle)
+            obs.plot(ax)
 
         ax.set_xlabel('X Position (m)', fontsize=12)
         ax.set_ylabel('Y Position (m)', fontsize=12)
@@ -428,8 +427,8 @@ class FunctionVisualizer:
             fig = ax.figure
 
         # Create grid
-        x = np.linspace(0, self.env.bounds[0], resolution)
-        y = np.linspace(0, self.env.bounds[1], int(resolution * self.env.bounds[1] / self.env.bounds[0]))
+        x = np.linspace(0, self.env.workspace[0], resolution)
+        y = np.linspace(0, self.env.workspace[1], int(resolution * self.env.workspace[1] / self.env.workspace[0]))
         X, Y = np.meshgrid(x, y)
 
         # Evaluate CLF
@@ -446,14 +445,8 @@ class FunctionVisualizer:
         # Plot heatmap
         im = ax.contourf(X, Y, V_grid, levels=20, cmap='viridis', alpha=0.8)
 
-        # Overlay goals
-        for goal in self.env.goals:
-            circle = patches.Circle(goal['center'], goal['radius'],
-                                   facecolor='yellow', edgecolor='red',
-                                   linewidth=2, alpha=0.6)
-            ax.add_patch(circle)
-            ax.text(goal['center'][0], goal['center'][1], '★',
-                   fontsize=20, ha='center', va='center', color='red')
+        # Note: Goals are not stored in the environment, they are passed as parameters
+        # If you need to plot a goal, pass it as a parameter to this function
 
         ax.set_xlabel('X Position (m)', fontsize=12)
         ax.set_ylabel('Y Position (m)', fontsize=12)

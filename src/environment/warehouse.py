@@ -60,7 +60,7 @@ class BoxObstacle(Obstacle):
 
 class WarehouseEnv:
     """
-    Simulates the warehouse navigation task with a UNICYCLE model.
+    Simulates the warehouse navigation task with a unicycle model.
     Internal State s = [x, y, theta, v]
     NN State s_nn = [x, y, cos(theta), sin(theta), v]
     Action a = [linear_accel, angular_velocity]

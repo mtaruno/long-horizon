@@ -27,7 +27,8 @@ def run_evaluation(config: dict, device: torch.device, visualize: bool = False) 
         subgoal_dim=nn_config['subgoal_dim'],
         action_dim=nn_config['action_dim'],
         hidden_dims=nn_config['hidden_dims'],
-        a_max=config['env']['a_max']
+        a_max=config['env']['a_max'],
+        omega_max=config['env']['omega_max']
     ).to(device)
     
     cbf_net = CBFNetwork(

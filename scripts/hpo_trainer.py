@@ -1,5 +1,3 @@
-# scripts/hpo_trainer.py
-
 import optuna
 import yaml
 import torch
@@ -10,7 +8,6 @@ import sys
 import numpy as np
 import os
 from tqdm import tqdm
-
 from src.environment.warehouse import WarehouseEnv
 from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
@@ -95,13 +92,11 @@ def objective(trial: optuna.trial.Trial) -> float:
             subgoal_dim=nn_config['subgoal_dim'], max_size=train_config['buffer_size']
         )
         
-        # --- THIS IS THE FIX for 'omega_max' error ---
         policy_net = SubgoalConditionedPolicy(
             state_dim=nn_config['state_dim'], subgoal_dim=nn_config['subgoal_dim'],
             action_dim=nn_config['action_dim'], hidden_dims=nn_config['hidden_dims'],
             a_max=env.a_max, omega_max=env.omega_max # Pass both maxes
         ).to(device)
-        # --- END FIX ---
         
         cbf_net = CBFNetwork(
             state_dim=nn_config['state_dim'], hidden_dims=nn_config['hidden_dims']
@@ -147,7 +142,6 @@ def objective(trial: optuna.trial.Trial) -> float:
                     g_torch = torch.from_numpy(g).float().to(device).unsqueeze(0)
                     a_det_unscaled = policy_net(s_torch, g_torch).cpu().numpy().squeeze(0)
                 
-                # --- THIS IS THE FIX for action scaling ---
                 exploration_noise = train_config['exploration_noise']
                 # Add noise to the [-1, 1] action
                 a_unscaled = a_det_unscaled + np.random.normal(0, exploration_noise, size=nn_config['action_dim'])
@@ -155,7 +149,6 @@ def objective(trial: optuna.trial.Trial) -> float:
                 
                 # Scale action for the environment
                 a_scaled = a_unscaled * np.array([env.a_max, env.omega_max])
-                # --- END FIX ---
                 
                 s_next_nn, _, done, info = env.step(a_scaled)
                 v_star = env.get_ground_truth_feasibility(s_next_nn, g)
@@ -186,7 +179,7 @@ def objective(trial: optuna.trial.Trial) -> float:
                         loss, _ = clf_net.compute_loss_constraint(b_s, b_s_next, b_g, b_v_star, config)
                         loss.backward()
                         clf_optim.step()
-                    if global_step % train_config['policy_update_freq'] == 0:
+                    if global_step % train_config['policy_update_freq'] == 0: # fast and slow time scale they have to be significantly different
                         batch = buffer.sample(train_config['batch_size'])
                         b_s, b_g, b_s_next_real = (torch.from_numpy(batch[k]).float().to(device) for k in ['states', 'subgoals', 'next_states'])
                         

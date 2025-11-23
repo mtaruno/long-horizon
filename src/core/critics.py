@@ -77,7 +77,6 @@ class CBFNetwork(nn.Module):
         # 2. Unsafe loss: L_unsafe = [max(0, h(s))]^2 for s in S_unsafe
         h_phi_next_unsafe = h_phi_next[unsafe_mask]
         loss_unsafe = torch.mean(torch.relu(h_phi_next_unsafe) ** 2) if h_phi_next_unsafe.numel() > 0 else 0.0
-        
         # 3. Constraint loss: L_constraint
         # h(s_k+1) - h(s_k) >= -alpha * h(s_k)
         # -> h(s_k+1) - (1 - alpha) * h(s_k) >= 0
