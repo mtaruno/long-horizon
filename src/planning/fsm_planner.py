@@ -1,43 +1,79 @@
 import numpy as np
 import torch
-from typing import List, Dict, Any, Tuple
+from typing import Dict, Any, Tuple
 
 from src.utils.buffer import ReplayBuffer
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.models import EnsembleDynamicsModel
 
-FSM_STATE_START = "START"
-FSM_STATE_WAYPOINT_1 = "WAYPOINT_1"
-FSM_STATE_GOAL = "GOAL"
-FSM_STATE_FAILED = "FAILED"
+
+
 
 class FSMAutomaton:
     """
     Implements the Finite State Machine (FSM) planner.
     Handles state transitions and FSM pruning (Algorithm 1).
+    
+    Automatically builds a linear FSM chain from waypoints:
+    START -> WAYPOINT_1 -> WAYPOINT_2 -> ... -> GOAL
     """
     def __init__(self, start_pos: np.ndarray, goal_pos: np.ndarray, config: Dict[str, Any]):
+
+        FSM_STATE_START = "START"
+        FSM_STATE_GOAL = "GOAL"
+        FSM_STATE_FAILED = "FAILED"
+
         self.fsm_config = config['fsm']
         self.clf_config = config['train']
+        self.FSM_STATE_FAILED = FSM_STATE_FAILED
         self.start_node = FSM_STATE_START
         self.goal_node = FSM_STATE_GOAL
         
-        self.waypoint_1 = np.array([6.0, 5.0]) # Open area between obstacles
-
-        # Subgoals are associated with the *target* state
-        self.subgoals = {
-            FSM_STATE_START: self.waypoint_1,
-            FSM_STATE_WAYPOINT_1: goal_pos,
-            FSM_STATE_GOAL: goal_pos
-        }
+        # Get waypoints from config (list of [x, y] positions)
+        waypoint_positions = config["fsm"].get("waypoints", [])
+        waypoint_positions = [np.array(wp) for wp in waypoint_positions]
         
-        # The FSM graph: (from_state, to_state)
-        self.transitions = {
-            FSM_STATE_START: [FSM_STATE_WAYPOINT_1],
-            FSM_STATE_WAYPOINT_1: [FSM_STATE_GOAL],
-            FSM_STATE_GOAL: [] # Terminal state
-        }
+        # Build FSM states: START, WAYPOINT_1, WAYPOINT_2, ..., GOAL
+        self.all_states = [FSM_STATE_START]
+        self.waypoint_states = []
+        for i in range(len(waypoint_positions)):
+            state_name = f"WAYPOINT_{i+1}"
+            self.waypoint_states.append(state_name)
+            self.all_states.append(state_name)
+        self.all_states.append(FSM_STATE_GOAL)
+        
+        # Build transitions: linear chain START -> WP1 -> WP2 -> ... -> GOAL
+        self.transitions = {}
+        self.subgoals = {}
+        
+        # START -> first waypoint (or goal if no waypoints)
+        if len(waypoint_positions) > 0:
+            self.transitions[FSM_STATE_START] = [self.waypoint_states[0]]
+            self.subgoals[FSM_STATE_START] = waypoint_positions[0]
+        else:
+            # No waypoints: direct path to goal
+            self.transitions[FSM_STATE_START] = [FSM_STATE_GOAL]
+            self.subgoals[FSM_STATE_START] = goal_pos
+        
+        # Waypoint transitions: each waypoint -> next waypoint (or goal)
+        for i, wp_state in enumerate(self.waypoint_states):
+            if i < len(self.waypoint_states) - 1:
+                # Waypoint -> next waypoint
+                next_state = self.waypoint_states[i + 1]
+                self.transitions[wp_state] = [next_state]
+                self.subgoals[wp_state] = waypoint_positions[i + 1]
+            else:
+                # Last waypoint -> goal
+                self.transitions[wp_state] = [FSM_STATE_GOAL]
+                self.subgoals[wp_state] = goal_pos
+        
+        # Goal is terminal
+        self.transitions[FSM_STATE_GOAL] = []
+        self.subgoals[FSM_STATE_GOAL] = goal_pos
+        
+        # Store waypoint positions for reference
+        self.waypoint_positions = waypoint_positions
         
         self.valid_transitions = self.transitions.copy()
         self.current_state = self.start_node
@@ -56,21 +92,32 @@ class FSMAutomaton:
     def transition(self, nn_state: np.ndarray) -> str:
         """
         Checks if the robot's state triggers an FSM transition.
+        Automatically handles transitions for any number of waypoints.
         """
         current_subgoal = self.get_current_subgoal()
         dist_to_subgoal_sq = np.sum((nn_state[:2] - current_subgoal[:2]) ** 2)
 
         # Check if we've reached the current subgoal
         if dist_to_subgoal_sq <= self.clf_config['clf_epsilon']:
-            if self.current_state == FSM_STATE_START:
-                if FSM_STATE_WAYPOINT_1 in self.valid_transitions[self.current_state]:
-                    self.current_state = FSM_STATE_WAYPOINT_1
-                    print("FSM: Reached Waypoint 1. Transitioning to GOAL.")
+            # Get valid next states
+            next_states = self.valid_transitions.get(self.current_state, [])
             
-            elif self.current_state == FSM_STATE_WAYPOINT_1:
-                if FSM_STATE_GOAL in self.valid_transitions[self.current_state]:
-                    self.current_state = FSM_STATE_GOAL
+            if next_states:
+                next_state = next_states[0]  # Take first valid transition
+                old_state = self.current_state
+                self.current_state = next_state
+                
+                # Print transition message
+                if self.current_state == self.goal_node:
                     print("FSM: Transitioned to GOAL")
+                elif old_state == self.start_node:
+                    wp_num = self.waypoint_states.index(next_state) + 1
+                    print(f"FSM: Reached Waypoint {wp_num}. Transitioning to next state.")
+                elif next_state in self.waypoint_states:
+                    wp_num = self.waypoint_states.index(next_state) + 1
+                    print(f"FSM: Reached Waypoint {wp_num}.")
+                else:
+                    print(f"FSM: Transitioned from {old_state} to {next_state}")
         
         return self.current_state
 

@@ -31,13 +31,13 @@ def main():
         max_size=gen_config['num_transitions']
     )
     
-    # Get the two subgoals we will train on
-    subgoal_1 = fsm.subgoals['START']
-    subgoal_2 = fsm.subgoals['WAYPOINT_1']
-    subgoals_list = [subgoal_1, subgoal_2]
-
+    # Get all subgoals from the FSM (works with any number of waypoints)
+    # The CLF needs to learn feasibility for all subgoals in the FSM
+    subgoals_list = list(fsm.subgoals.values())
+    
     print(f"--- Starting Data Generation (Algorithm 3) ---")
     print(f"Targeting {gen_config['num_transitions']} transitions.")
+    print(f"Using {len(subgoals_list)} subgoals from FSM: {list(fsm.subgoals.keys())}")
     
     pbar = tqdm(total=gen_config['num_transitions'])
     
@@ -68,10 +68,13 @@ def main():
         s_next_nn, _, _, info = env.step(a)
         
         # Randomly pick one of the subgoals for this data point
-        g = subgoals_list[np.random.randint(0, len(subgoals_list))]
+        # This ensures the CLF learns feasibility for all subgoals in the FSM
+        # The CLF V_ψ(s, g) needs diverse (s, g) pairs to learn properly
+        idx = int(np.random.randint(0, len(subgoals_list)))
+        g = subgoals_list[idx]
         
-        h_star = info['h_star']
-        v_star = env.get_ground_truth_feasibility(s_next_nn, g)
+        h_star = info['h_star'] # distance to nearest obstacle
+        v_star = env.get_ground_truth_feasibility(s_next_nn, g) # distance to subgoal g
         
         buffer.add(
             state=s_nn,

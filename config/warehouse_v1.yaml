@@ -92,6 +92,10 @@ train:
 fsm:
   start_state: [1.0, 1.0]
   goal_state: [10.5, 8.5]
+  # Waypoints: list of [x, y] positions. FSM will create linear chain:
+  # START -> WAYPOINT_1 -> WAYPOINT_2 -> ... -> GOAL
+  waypoints:
+    - [6.0, 5.0]  # Example waypoint - add more as needed
   pruning_samples: 200
   safe_margin: 0.0
   feas_margin: 0.05

@@ -22,10 +22,8 @@ class ReplayBuffer:
         self.h_stars = np.zeros((max_size, 1), dtype=np.float32)
         self.v_stars = np.zeros((max_size, 1), dtype=np.float32)
 
-        # --- THIS IS THE FIX ---
         # Create a dedicated, seeded random number generator for the buffer
         self.rng = np.random.default_rng(seed=42)
-        # --- END FIX ---
 
     def add(self, 
             state: np.ndarray, 
