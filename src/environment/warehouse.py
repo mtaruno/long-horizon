@@ -264,12 +264,10 @@ class WarehouseEnv:
             ax.plot(path[:, 0], path[:, 1], 'g-', alpha=0.5, zorder=1)
             
         if goal is not None:
-            # --- THIS IS THE FIX ---
             # Access clf_epsilon from the 'train' section of the full config
             clf_epsilon = self.full_config['train']['clf_epsilon']
             goal_circle = plt.Circle(goal[:2], np.sqrt(clf_epsilon), 
                                      color='g', fill=True, zorder=3, alpha=0.3)
-            # --- END FIX ---
             ax.add_patch(goal_circle)
 
         # Plot robot as an arrow

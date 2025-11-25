@@ -108,14 +108,11 @@ def create_evaluation_animation(env: WarehouseEnv,
         env.render(ax, nn_state=state, goal=goal, path=np.array(path[:i+1]))
         ax.set_title(f"Evaluation Step {i+1}/{len(path)}")
         
-        # Save frame to buffer
+        # Draw and grab an RGBA buffer that already has the correct shape.
         fig.canvas.draw()
-        
-        # Use tostring_argb() and reshape to 4 channels, then slice off the alpha
-        buffer_rgba = fig.canvas.tostring_argb()
-        image = np.frombuffer(buffer_rgba, dtype='uint8')
-        image = image.reshape(fig.canvas.get_width_height()[::-1] + (4,))
-        frames.append(image[:, :, :3]) # Slice off the alpha channel
+        image_rgba = np.asarray(fig.canvas.buffer_rgba())
+        # Drop alpha channel for imageio
+        frames.append(image_rgba[:, :, :3].copy())
         
     plt.close(fig)
     
@@ -215,7 +212,6 @@ class EnvironmentVisualizer:
         ax.set_ylim(-0.5, env.workspace[1] + 0.5)
         ax.set_aspect('equal')
         ax.grid(True, alpha=0.3)
-        # Draw environment (should now match dataset!)
         for obs in env.obstacles:
             obs.plot(ax)
 
@@ -354,58 +350,91 @@ class FunctionVisualizer:
         """
         self.env = env
 
-    def plot_cbf_heatmap(self, cbf, ax=None, resolution=60,
-                        title="CBF Safety Function"):
-        """
-        Plot CBF values as heatmap over workspace.
 
-        Args:
-            cbf: CBF network
-            ax: Matplotlib axis
-            resolution: Grid resolution
-            title: Plot title
-
-        Returns:
-            fig, ax: Matplotlib figure and axis
-        """
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(12, 10))
+    def state_positions(self, states, env, h_stars, v_stars, ax):
+        num_transitions=len(states)
+        positions = states[:, :2]  # x, y positions
+        h_stars_flat = h_stars.flatten()
+        v_stars_flat = v_stars.flatten()
+        
+        # Normalize v* values to marker sizes (feasibility encoded as size)
+        # Scale to a reasonable range for visualization (e.g., 1-50)
+        v_min, v_max = v_stars_flat.min(), v_stars_flat.max()
+        if v_max > v_min:
+            marker_sizes = 1 + 49 * (v_stars_flat - v_min) / (v_max - v_min)
         else:
-            fig = ax.figure
-
-        # Create grid
-        x = np.linspace(0, self.env.workspace[0], resolution)
-        y = np.linspace(0, self.env.workspace[1], int(resolution * self.env.workspace[1] / self.env.workspace[0]))
-        X, Y = np.meshgrid(x, y)
-
-        # Evaluate CBF
-        states = np.stack([X.flatten(), Y.flatten(),
-                          np.zeros_like(X.flatten()),
-                          np.zeros_like(X.flatten())], axis=1)
-        states_tensor = torch.FloatTensor(states)
-
-        with torch.no_grad():
-            h_values = cbf(states_tensor).squeeze().numpy()
-
-        h_grid = h_values.reshape(X.shape)
-
-        # Plot heatmap
-        im = ax.contourf(X, Y, h_grid, levels=20, cmap='RdYlGn', alpha=0.8)
-        ax.contour(X, Y, h_grid, levels=[0], colors='black', linewidths=3)
-
+            marker_sizes = np.ones_like(v_stars_flat) * 25
+        
+        # Separate safe and unsafe states based on h*
+        safe_mask = h_stars_flat > 0
+        unsafe_mask = h_stars_flat <= 0
+        
+        # Plot safe states in blue (size encodes feasibility)
+        if np.any(safe_mask):
+            ax.scatter(positions[safe_mask, 0], positions[safe_mask, 1], 
+                    alpha=0.3, s=marker_sizes[safe_mask], c='blue', 
+                    label='Safe (h* > 0), size∝v*')
+        
+        # Plot unsafe states in red (size encodes feasibility)
+        if np.any(unsafe_mask):
+            ax.scatter(positions[unsafe_mask, 0], positions[unsafe_mask, 1], 
+                    alpha=0.3, s=marker_sizes[unsafe_mask], c='red', 
+                    label='Unsafe (h* <= 0), size∝v*')
+        
+        ax.set_xlabel('X Position')
+        ax.set_ylabel('Y Position')
+        ax.set_title(f'State Positions (n={num_transitions})\nColor: Safety (h*), Size: Feasibility (v*)')
+        ax.set_xlim(-0.5, env.workspace[0] + 0.5)
+        ax.set_ylim(-0.5, env.workspace[1] + 0.5)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
         # Overlay obstacles
-        for obs in self.env.obstacles:
+        for obs in env.obstacles:
             obs.plot(ax)
 
-        ax.set_xlabel('X Position (m)', fontsize=12)
-        ax.set_ylabel('Y Position (m)', fontsize=12)
-        ax.set_title(f'{title}\nGreen=Safe (h≥0), Red=Unsafe (h<0)',
-                    fontsize=14, fontweight='bold')
+    def safety_distribution(self, h_stars, ax):
+        # 2. Safety distribution (h*)
+    
+        h_stars_flat = h_stars.flatten()
+        ax.hist(h_stars_flat, bins=50, alpha=0.7, edgecolor='black')
+        ax.axvline(x=0, color='r', linestyle='--', linewidth=2, label='Safe/Unsafe boundary')
+        ax.set_xlabel('h* (Safety Value)')
+        ax.set_ylabel('Frequency')
+        ax.set_title('Safety Distribution')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    def feasibility_distribution(self, v_stars, ax):
+        v_stars_flat = v_stars.flatten()
+        ax.hist(v_stars_flat, bins=50, alpha=0.7, color='green', edgecolor='black')
+        ax.set_xlabel('v* (Feasibility Value)')
+        ax.set_ylabel('Frequency')
+        ax.set_title('Feasibility Distribution')
+        ax.grid(True, alpha=0.3)
+
+    def subgoal_positions(self, subgoals, env, subgoals_unique, ax):
+        # 4. Subgoal positions
+        subgoal_positions = subgoals[:, :2]
+        ax.scatter(subgoal_positions[:, 0], subgoal_positions[:, 1], alpha=0.3, s=1, c='red', label='Subgoals')
+        # Show unique subgoals
+        for i, sg in enumerate(subgoals_unique):
+            ax.plot(sg[0], sg[1], 'o', markersize=15, markeredgecolor='black', 
+                    markeredgewidth=2, label=f'Subgoal {i+1}' if i < 5 else '')
+        ax.set_xlabel('X Position')
+        ax.set_ylabel('Y Position')
+        ax.set_title('Subgoal Distribution')
+        ax.set_xlim(-0.5, env.workspace[0] + 0.5)
+        ax.set_ylim(-0.5, env.workspace[1] + 0.5)
         ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        # Overlay obstacles
+        for obs in env.obstacles:
+            obs.plot(ax)
+        plt.tight_layout()
+        plt.show()
 
-        plt.colorbar(im, ax=ax, label='h(s)')
-
-        return fig, ax
 
     def plot_clf_heatmap(self, clf, ax=None, resolution=60,
                         title="CLF Goal Function"):

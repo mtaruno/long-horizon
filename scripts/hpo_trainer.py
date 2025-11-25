@@ -13,10 +13,13 @@ from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.models import EnsembleDynamicsModel
-from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL, FSM_STATE_WAYPOINT_1
+from src.planning.fsm_planner import FSMAutomaton
 from src.utils.seeding import set_seed
 from src.utils.visualization import plot_critic_landscapes, create_evaluation_animation
 from typing import Dict, Tuple, Any
+
+FSM_STATE_GOAL = FSMAutomaton.FSM_STATE_GOAL
+FSM_STATE_WAYPOINT_1 = FSMAutomaton.FSM_STATE_WAYPOINT_1
 
 def compute_actor_loss(
     s: torch.Tensor,
@@ -70,7 +73,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     config['train']['lr_actor'] = trial.suggest_float('lr_actor', 1e-5, 1e-3, log=True)
     config['train']['lr_critic'] = trial.suggest_float('lr_critic', 1e-5, 1e-3, log=True)
     config['train']['lr_dynamics'] = trial.suggest_float('lr_dynamics', 1e-5, 1e-3, log=True)
-    config['train']['num_episodes'] = 300 # Reduced for a faster trial
+    config['train']['num_episodes'] = 30 # Reduced for a faster trial
 
     print(f"\n--- TRIAL {trial.number} STARTING ---")
     print(f"Params: {trial.params}")
@@ -378,7 +381,7 @@ def objective(trial: optuna.trial.Trial) -> float:
 if __name__ == "__main__":
     print("="*40)
     print("🚀 STARTING AUTO-TRAINER 🚀")
-    print("="*40) # Fixed typo 4g -> 40
+    print("="*40)
 
     python_executable = sys.executable 
 

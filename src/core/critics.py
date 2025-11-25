@@ -156,7 +156,6 @@ class CLFNetwork(nn.Module):
         # 2. Constraint loss: L_constraint
         # V(s_k+1) - V(s_k) <= -beta * V(s_k) + delta
         # Violation is when: V(s_k+1) - (1 - beta) * V(s_k) - delta > 0
-        # --- THIS IS THE FIX ---
         constraint_violation = v_psi_next - (1 - beta) * v_psi - delta  # <-- WAS + delta
         loss_constraint = torch.mean(torch.relu(constraint_violation) ** 2)
 
