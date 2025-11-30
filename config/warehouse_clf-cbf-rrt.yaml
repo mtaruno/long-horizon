@@ -1,0 +1,13 @@
+env:
+  workspace: [10.0, 10.0]
+  dt: 0.05
+  v_max: 2.0
+  a_max: 1.0
+  omega_max: 1.5
+  robot_radius: 0.2
+
+train:
+  alpha_clf: 1.0
+  gamma_cbf: 1.5
+  alpha_cbf: 1.5
+  clf_epsilon: 0.1

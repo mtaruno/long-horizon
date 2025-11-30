@@ -295,7 +295,6 @@ class EnvironmentVisualizer:
 
         ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
 
-        return fig, ax
 
     def plot_trajectory_sequence(self, states: List[np.ndarray],
                                 title: str = "Robot Trajectory"):
@@ -351,47 +350,42 @@ class FunctionVisualizer:
         self.env = env
 
 
-    def state_positions(self, states, env, h_stars, v_stars, ax):
+    def state_positions(self, states, env, h_stars, v_stars):
         num_transitions=len(states)
         positions = states[:, :2]  # x, y positions
         h_stars_flat = h_stars.flatten()
         v_stars_flat = v_stars.flatten()
         
-        # Normalize v* values to marker sizes (feasibility encoded as size)
-        # Scale to a reasonable range for visualization (e.g., 1-50)
-        v_min, v_max = v_stars_flat.min(), v_stars_flat.max()
-        if v_max > v_min:
-            marker_sizes = 1 + 49 * (v_stars_flat - v_min) / (v_max - v_min)
-        else:
-            marker_sizes = np.ones_like(v_stars_flat) * 25
+        # Create a 3D plot
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
         
         # Separate safe and unsafe states based on h*
         safe_mask = h_stars_flat > 0
         unsafe_mask = h_stars_flat <= 0
         
-        # Plot safe states in blue (size encodes feasibility)
+        # Plot safe states in blue (z-axis encodes feasibility v*)
         if np.any(safe_mask):
-            ax.scatter(positions[safe_mask, 0], positions[safe_mask, 1], 
-                    alpha=0.3, s=marker_sizes[safe_mask], c='blue', 
-                    label='Safe (h* > 0), size∝v*')
+            ax.scatter(positions[safe_mask, 0], positions[safe_mask, 1], v_stars_flat[safe_mask],
+                    alpha=0.5, s=20, c='blue', 
+                    label='Safe (h* > 0)')
         
-        # Plot unsafe states in red (size encodes feasibility)
+        # Plot unsafe states in red (z-axis encodes feasibility v*)
         if np.any(unsafe_mask):
-            ax.scatter(positions[unsafe_mask, 0], positions[unsafe_mask, 1], 
-                    alpha=0.3, s=marker_sizes[unsafe_mask], c='red', 
-                    label='Unsafe (h* <= 0), size∝v*')
+            ax.scatter(positions[unsafe_mask, 0], positions[unsafe_mask, 1], v_stars_flat[unsafe_mask],
+                    alpha=0.5, s=20, c='red', 
+                    label='Unsafe (h* <= 0)')
         
         ax.set_xlabel('X Position')
         ax.set_ylabel('Y Position')
-        ax.set_title(f'State Positions (n={num_transitions})\nColor: Safety (h*), Size: Feasibility (v*)')
+        ax.set_zlabel('v* (Feasibility/CLF Value)')
+        ax.set_title(f'State Positions (n={num_transitions})\nColor: Safety (h*), Z-axis: Feasibility (v*)')
         ax.set_xlim(-0.5, env.workspace[0] + 0.5)
         ax.set_ylim(-0.5, env.workspace[1] + 0.5)
-        ax.set_aspect('equal')
-        ax.grid(True, alpha=0.3)
         ax.legend()
-        # Overlay obstacles
-        for obs in env.obstacles:
-            obs.plot(ax)
+        ax.grid(True, alpha=0.3)
+        
+        # Note: Obstacles can't be easily overlaid on 3D plot, so we skip that
 
     def safety_distribution(self, h_stars, ax):
         # 2. Safety distribution (h*)
