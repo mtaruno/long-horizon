@@ -9,7 +9,7 @@ from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.models import DynamicsModel
-from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL, FSM_STATE_FAILED
+from src.planning.fsm_planner import FSMAutomaton
 from src.utils.visualization import plot_critic_landscapes, create_evaluation_animation
 from src.utils.seeding import set_seed
 

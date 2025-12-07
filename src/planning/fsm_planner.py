@@ -16,30 +16,29 @@ class FSMAutomaton:
     Automatically builds a linear FSM chain from waypoints:
     START -> WAYPOINT_1 -> WAYPOINT_2 -> ... -> GOAL
     """
+    # Class-level constants (can be accessed as FSMAutomaton.FSM_STATE_GOAL)
+    FSM_STATE_START = "START"
+    FSM_STATE_GOAL = "GOAL"
+    FSM_STATE_FAILED = "FAILED"
+    FSM_STATE_WAYPOINT_1 = "WAYPOINT_1"
+    
     def __init__(self, start_pos: np.ndarray, goal_pos: np.ndarray, config: Dict[str, Any]):
-
-        FSM_STATE_START = "START"
-        FSM_STATE_GOAL = "GOAL"
-        FSM_STATE_FAILED = "FAILED"
 
         self.fsm_config = config['fsm']
         self.clf_config = config['train']
-        self.FSM_STATE_FAILED = FSM_STATE_FAILED
-        self.start_node = FSM_STATE_START
-        self.goal_node = FSM_STATE_GOAL
         
         # Get waypoints from config (list of [x, y] positions)
         waypoint_positions = config["fsm"].get("waypoints", [])
         waypoint_positions = [np.array(wp) for wp in waypoint_positions]
         
         # Build FSM states: START, WAYPOINT_1, WAYPOINT_2, ..., GOAL
-        self.all_states = [FSM_STATE_START]
+        self.all_states = [self.FSM_STATE_START]
         self.waypoint_states = []
         for i in range(len(waypoint_positions)):
             state_name = f"WAYPOINT_{i+1}"
             self.waypoint_states.append(state_name)
             self.all_states.append(state_name)
-        self.all_states.append(FSM_STATE_GOAL)
+        self.all_states.append(self.FSM_STATE_GOAL)
         
         # Build transitions: linear chain START -> WP1 -> WP2 -> ... -> GOAL
         self.transitions = {}
@@ -47,12 +46,12 @@ class FSMAutomaton:
         
         # START -> first waypoint (or goal if no waypoints)
         if len(waypoint_positions) > 0:
-            self.transitions[FSM_STATE_START] = [self.waypoint_states[0]]
-            self.subgoals[FSM_STATE_START] = waypoint_positions[0]
+            self.transitions[self.FSM_STATE_START] = [self.waypoint_states[0]]
+            self.subgoals[self.FSM_STATE_START] = waypoint_positions[0]
         else:
             # No waypoints: direct path to goal
-            self.transitions[FSM_STATE_START] = [FSM_STATE_GOAL]
-            self.subgoals[FSM_STATE_START] = goal_pos
+            self.transitions[self.FSM_STATE_START] = [self.FSM_STATE_GOAL]
+            self.subgoals[self.FSM_STATE_START] = goal_pos
         
         # Waypoint transitions: each waypoint -> next waypoint (or goal)
         for i, wp_state in enumerate(self.waypoint_states):
@@ -63,15 +62,19 @@ class FSMAutomaton:
                 self.subgoals[wp_state] = waypoint_positions[i + 1]
             else:
                 # Last waypoint -> goal
-                self.transitions[wp_state] = [FSM_STATE_GOAL]
+                self.transitions[wp_state] = [self.FSM_STATE_GOAL]
                 self.subgoals[wp_state] = goal_pos
         
         # Goal is terminal
-        self.transitions[FSM_STATE_GOAL] = []
-        self.subgoals[FSM_STATE_GOAL] = goal_pos
+        self.transitions[self.FSM_STATE_GOAL] = []
+        self.subgoals[self.FSM_STATE_GOAL] = goal_pos
         
         # Store waypoint positions for reference
         self.waypoint_positions = waypoint_positions
+        
+        # Set start and goal node references
+        self.start_node = self.FSM_STATE_START
+        self.goal_node = self.FSM_STATE_GOAL
         
         self.valid_transitions = self.transitions.copy()
         self.current_state = self.start_node

@@ -10,7 +10,7 @@ from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.models import DynamicsModel
-from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL, FSM_STATE_FAILED
+from src.planning.fsm_planner import FSMAutomaton
 from src.utils.logger import Logger
 from src.utils.seeding import set_seed
 
@@ -46,7 +46,8 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
         subgoal_dim=nn_config['subgoal_dim'],
         action_dim=nn_config['action_dim'],
         hidden_dims=nn_config['hidden_dims'],
-        a_max=env.a_max
+        a_max=env.a_max,
+        omega_max=env.omega_max
     ).to(device)
     
     cbf_net = CBFNetwork(
@@ -180,7 +181,7 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
         if use_tqdm:
             logger.log_scalar("episode/reward", ep_reward, episode)
             logger.log_scalar("episode/length", t+1, episode)
-            logger.log_scalar("episode/success", 1.0 if fsm_state == FSM_STATE_GOAL else 0.0, episode)
+            logger.log_scalar("episode/success", 1.0 if fsm_state == fsm.FSM_STATE_GOAL else 0.0, episode)
         
         if ep_reward > best_ep_reward:
             best_ep_reward = ep_reward

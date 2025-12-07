@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .cbf import CBFNetwork, EnsembleCBF, CBFTrainer
 from .clf import CLFNetwork, EnsembleCLF, CLFTrainer, CBFCLFController
-from .models import EnsembleDynamics, AdaptiveModelLearner, ReplayBuffer
+from .core.models import EnsembleDynamics, AdaptiveModelLearner, ReplayBuffer
 
 
 @dataclass

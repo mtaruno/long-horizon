@@ -10,11 +10,10 @@ from src.utils.buffer import ReplayBuffer
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
 from src.core.models import DynamicsModel
-from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL, FSM_STATE_FAILED
+from src.planning.fsm_planner import FSMAutomaton
 from src.utils.logger import Logger
 from src.utils.seeding import set_seed
 
-# --- NEW FUNCTION ---
 def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> float:
     """
     Runs the main training loop.
@@ -23,7 +22,7 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
     train_config = config['train']
     nn_config = config['nn']
     
-    # Initialize Logger
+    # Initialize Logger 
     # Disable logging to TensorBoard during optimization to save disk space
     logger = Logger("logs/main_train")
     
@@ -47,7 +46,8 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
         subgoal_dim=nn_config['subgoal_dim'],
         action_dim=nn_config['action_dim'],
         hidden_dims=nn_config['hidden_dims'],
-        a_max=env.a_max
+        a_max=env.a_max,
+        omega_max=env.omega_max
     ).to(device)
     
     cbf_net = CBFNetwork(
@@ -197,11 +197,6 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
     logger.close()
     return best_ep_reward # Return the best reward for Optuna
 
-# --- END NEW FUNCTION ---
-
-
-# --- MAIN BLOCK ---
-# This block now just loads the config and calls the run_training function
 if __name__ == "__main__":
     set_seed(42)  # Set a fixed seed for reproducibility
     with open("config/warehouse_v1.yaml", 'r') as f:

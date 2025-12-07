@@ -1,4 +1,4 @@
-# scripts/run_final_demo.py
+#r scripts/run_final_demo.py
 
 import yaml
 import torch
@@ -9,7 +9,7 @@ from typing import List
 from src.environment import WarehouseEnv
 from src.core.critics import CBFNetwork, CLFNetwork
 from src.core.policy import SubgoalConditionedPolicy
-from src.core.models import DynamicsModel
+from src.core.models1 import DynamicsModel
 from src.planning.fsm_planner import FSMAutomaton, FSM_STATE_GOAL
 from src.utils.visualization import plot_critic_landscapes, create_evaluation_animation
 from src.utils.seeding import set_seed
