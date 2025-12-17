@@ -108,3 +108,43 @@ def waypoints_to_config_format(waypoints: List[np.ndarray]) -> List[List[float]]
     """
     return [[float(wp[0]), float(wp[1])] for wp in waypoints]
 
+
+
+
+    # Example usage for extracting RRT waypoints and printing them in config format
+if __name__ == "__main__":
+    import argparse
+    import numpy as np
+    from src.environment import WarehouseEnv
+
+    parser = argparse.ArgumentParser(description="Extract RRT waypoints for config.")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file for environment")
+    parser.add_argument("--start", type=float, nargs=2, required=True, help="Start position: x y")
+    parser.add_argument("--goal", type=float, nargs=2, required=True, help="Goal position: x y")
+    parser.add_argument("--max_waypoints", type=int, default=5, help="Maximum number of waypoints")
+    parser.add_argument("--min_distance", type=float, default=1.0, help="Minimum distance between waypoints")
+    args = parser.parse_args()
+
+    # Load config YAML (needs PyYAML)
+    import yaml
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    env = WarehouseEnv(config)
+    waypoints = get_rrt_waypoints(
+        env=env,
+        start=tuple(args.start),
+        goal=tuple(args.goal),
+        max_waypoints=args.max_waypoints,
+        min_distance=args.min_distance
+    )
+
+    if waypoints is None or len(waypoints) == 0:
+        print("No waypoints found (RRT failed).")
+    else:
+        waypoints_config = waypoints_to_config_format(waypoints)
+        print("# Waypoints to copy into your config (YAML):")
+        print("waypoints:")
+        for wp in waypoints_config:
+            print(f"  - {wp}")
+

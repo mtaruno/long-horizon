@@ -26,6 +26,10 @@ class FSMAutomaton:
         self.fsm_config = config['fsm']
         self.clf_config = config['train']
         
+        # Store action limits for scaling (needed for dynamics model)
+        self.a_max = config['env']['a_max']
+        self.omega_max = config['env']['omega_max']
+        
         # Get waypoints from config (list of [x, y] positions)
         waypoint_positions = config["fsm"].get("waypoints", [])
         waypoint_positions = [np.array(wp) for wp in waypoint_positions]
@@ -154,8 +158,14 @@ class FSMAutomaton:
             g_transition = g_transition.repeat(s.shape[0], 1)
             
             with torch.no_grad():
-                a = policy_net(s, g_transition)
-                s_prime = dynamics_net(s, a)
+                # Policy outputs actions in [-1, 1] range (tanh)
+                a_unscaled = policy_net(s, g_transition)
+                # Scale actions to actual range before passing to dynamics model
+                # The dynamics model was trained on scaled actions
+                a_scaled = a_unscaled.clone()
+                a_scaled[:, 0] = a_unscaled[:, 0] * self.a_max  # Scale linear acceleration
+                a_scaled[:, 1] = a_unscaled[:, 1] * self.omega_max  # Scale angular velocity
+                s_prime = dynamics_net(s, a_scaled)
                 
                 h_prime = cbf_net(s_prime)
                 safe_margin = self.fsm_config['safe_margin']

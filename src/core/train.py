@@ -119,7 +119,7 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
             ep_reward += r
             
             fsm_state = fsm.transition(s_next)
-            done = info['is_collision'] or (fsm_state == FSM_STATE_GOAL)
+            done = info['is_collision'] or (fsm_state == FSMAutomaton.FSM_STATE_GOAL)
             
             buffer.add(s, a, s_next, g, r, done, info['h_star'], v_star)
             s = s_next
@@ -163,8 +163,13 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
                     batch = buffer.sample(train_config['batch_size'])
                     b_s = torch.from_numpy(batch['states']).float().to(device)
                     b_g = torch.from_numpy(batch['subgoals']).float().to(device)
-                    b_a = policy_net(b_s, b_g)
-                    b_s_next_pred = dynamics_net(b_s, b_a)
+                    # Policy outputs actions in [-1, 1] range (tanh)
+                    b_a_unscaled = policy_net(b_s, b_g)
+                    # Scale actions to actual range (same as stored in buffer)
+                    b_a_scaled = b_a_unscaled.clone()
+                    b_a_scaled[:, 0] = b_a_unscaled[:, 0] * env.a_max
+                    b_a_scaled[:, 1] = b_a_unscaled[:, 1] * env.omega_max
+                    b_s_next_pred = dynamics_net(b_s, b_a_scaled)
                     policy_optim.zero_grad()
                     for param in cbf_net.parameters(): param.requires_grad = False
                     for param in clf_net.parameters(): param.requires_grad = False
@@ -181,7 +186,7 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
         if use_tqdm:
             logger.log_scalar("episode/reward", ep_reward, episode)
             logger.log_scalar("episode/length", t+1, episode)
-            logger.log_scalar("episode/success", 1.0 if fsm_state == FSM_STATE_GOAL else 0.0, episode)
+            logger.log_scalar("episode/success", 1.0 if fsm_state == FSMAutomaton.FSM_STATE_GOAL else 0.0, episode)
         
         if ep_reward > best_ep_reward:
             best_ep_reward = ep_reward
