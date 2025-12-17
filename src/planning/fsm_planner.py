@@ -16,20 +16,20 @@ class FSMAutomaton:
     Automatically builds a linear FSM chain from waypoints:
     START -> WAYPOINT_1 -> WAYPOINT_2 -> ... -> GOAL
     """
-    # Class-level constants (can be accessed as FSMAutomaton.FSM_STATE_GOAL)
     FSM_STATE_START = "START"
     FSM_STATE_GOAL = "GOAL"
     FSM_STATE_FAILED = "FAILED"
     FSM_STATE_WAYPOINT_1 = "WAYPOINT_1"
+
     
     def __init__(self, start_pos: np.ndarray, goal_pos: np.ndarray, config: Dict[str, Any]):
-
         self.fsm_config = config['fsm']
         self.clf_config = config['train']
         
         # Get waypoints from config (list of [x, y] positions)
         waypoint_positions = config["fsm"].get("waypoints", [])
         waypoint_positions = [np.array(wp) for wp in waypoint_positions]
+        print(f"Waypoint positions: {waypoint_positions}")
         
         # Build FSM states: START, WAYPOINT_1, WAYPOINT_2, ..., GOAL
         self.all_states = [self.FSM_STATE_START]
@@ -139,7 +139,6 @@ class FSMAutomaton:
         total_feasibility = 0.0
         num_transitions = 0
 
-        # --- LOOP OVER ALL TRANSITIONS ---
         for from_state, to_states in self.transitions.items():
             if not to_states: # Skip terminal states
                 continue
@@ -196,3 +195,22 @@ class FSMAutomaton:
         avg_feasibility = total_feasibility / num_transitions
         
         return all_paths_valid, avg_safety, avg_feasibility
+
+if __name__ == "__main__":
+    config = yaml.load(open("config/warehouse_v1.yaml"), Loader=yaml.FullLoader)
+    fsm = FSMAutomaton(
+        start_pos=np.array(config['fsm']['start_state']),
+        goal_pos=np.array(config['fsm']['goal_state']),
+        config=config
+    )
+    print(fsm.transitions)
+    print(fsm.subgoals)
+    print(fsm.waypoint_positions)
+    print(fsm.waypoint_states)
+    print(fsm.all_states)
+    print(fsm.start_node)
+    print(fsm.goal_node)
+    print(fsm.valid_transitions)
+    print(fsm.current_state)
+    print(fsm.start_pos)
+    print(fsm.goal_pos)

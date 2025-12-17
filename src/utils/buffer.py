@@ -49,10 +49,8 @@ class ReplayBuffer:
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
         """Samples a random minibatch of transitions."""
-        # --- THIS IS THE FIX ---
         # Use our seeded generator, not the global one
         idxs = self.rng.integers(0, self.size, size=batch_size)
-        # --- END FIX ---
 
         return {
             "states": self.states[idxs],
