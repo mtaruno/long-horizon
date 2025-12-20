@@ -46,11 +46,15 @@ class SubgoalConditionedPolicy(nn.Module):
                      s_next: torch.Tensor, # Can be real or predicted
                      cbf_net: CBFNetwork,
                      clf_net: CLFNetwork,
-                     config: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                     config: Dict[str, Any],
+                     a_unscaled: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Computes the actor loss (Corrected Version).
         The actor's job is to minimize *both* the CLF violation
         and the CBF violation.
+        
+        Args:
+            a_unscaled: Unscaled actions in [-1, 1] range (optional, for action regularization)
         """
         train_config = config['train']
         
@@ -77,15 +81,26 @@ class SubgoalConditionedPolicy(nn.Module):
         cbf_violation = h_phi_next - (1 - alpha) * h_phi
         penalty_cbf_constraint = torch.mean(torch.relu(-cbf_violation) ** 2)
 
-        # --- 3. Total Loss ---
-        # The actor's job is to minimize *both* violations.
+        # --- 3. Action Regularization (Prevent Tanh Saturation) ---
+        # Penalize actions that are too close to saturation (near -1 or 1)
+        # This helps prevent the policy from getting stuck in tanh saturation
+        action_penalty = torch.tensor(0.0, device=s.device)
+        if a_unscaled is not None:
+            # Penalize actions with absolute value > 0.9 (close to saturation)
+            action_penalty = torch.mean(torch.relu(torch.abs(a_unscaled) - 0.9) ** 2)
+        
+        # --- 4. Total Loss ---
+        # The actor's job is to minimize *both* violations and avoid saturation.
+        lambda_action = train_config.get('lambda_action', 0.1)  # Default 0.1 if not in config
         loss = (penalty_clf_constraint + 
-                train_config['lambda_cbf'] * penalty_cbf_constraint)
+                train_config['lambda_cbf'] * penalty_cbf_constraint +
+                lambda_action * action_penalty)
                 
         metrics = {
             'actor_loss': loss.item(),
             'actor_loss_clf_constraint': penalty_clf_constraint.item(),
             'actor_penalty_cbf_constraint': penalty_cbf_constraint.item(),
+            'actor_action_penalty': action_penalty.item() if isinstance(action_penalty, torch.Tensor) else 0.0,
         }
         
         return loss, penalty_clf_constraint, penalty_cbf_constraint

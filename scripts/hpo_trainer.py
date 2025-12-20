@@ -19,7 +19,6 @@ from src.utils.visualization import plot_critic_landscapes, create_evaluation_an
 from typing import Dict, Tuple, Any
 
 FSM_STATE_GOAL = FSMAutomaton.FSM_STATE_GOAL
-FSM_STATE_WAYPOINT_1 = FSMAutomaton.FSM_STATE_WAYPOINT_1
 
 def compute_actor_loss(
     s: torch.Tensor,
@@ -27,7 +26,8 @@ def compute_actor_loss(
     s_next: torch.Tensor, # Can be real or predicted
     cbf_net: CBFNetwork,
     clf_net: CLFNetwork,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    a_unscaled: torch.Tensor = None
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Helper function to compute the core actor loss."""
     train_config = config['train']
@@ -47,9 +47,27 @@ def compute_actor_loss(
     cbf_violation = h_phi_next - (1 - alpha) * h_phi
     penalty_cbf_constraint = torch.mean(torch.relu(-cbf_violation) ** 2)
 
-    # --- 3. Total Loss ---
+    # --- 3. Action Regularization (Prevent Tanh Saturation) ---
+    # Penalize actions that are too close to saturation (near -1 or 1)
+    action_penalty = torch.tensor(0.0, device=s.device)
+    if a_unscaled is not None:
+        # Penalize actions with absolute value > 0.9 (close to saturation)
+        action_penalty = torch.mean(torch.relu(torch.abs(a_unscaled) - 0.9) ** 2)
+
+    # --- 4. Total Loss ---
+    lambda_action = train_config.get('lambda_action', 0.1)  # Default 0.1 if not in config
     loss = (penalty_clf_constraint + 
-            train_config['lambda_cbf'] * penalty_cbf_constraint)
+            train_config['lambda_cbf'] * penalty_cbf_constraint +
+            lambda_action * action_penalty)
+
+    # print(f"Action Penalty: {action_penalty.item()}")
+    # print(f"Total Loss: {loss.item()}")
+    # print(f"CLF Constraint: {penalty_clf_constraint.item()}")
+    # print(f"CBF Constraint: {penalty_cbf_constraint.item()}")
+    # print(f"Lambda Action: {lambda_action}")
+    # print(f"Lambda CBF: {train_config['lambda_cbf']}")
+    # print(f"Lambda MF: {train_config['lambda_mf']}")
+    # print(f"Lambda Action: {lambda_action}")
             
     return loss, penalty_clf_constraint, penalty_cbf_constraint
 
@@ -140,6 +158,10 @@ def objective(trial: optuna.trial.Trial) -> float:
             g = fsm.get_current_subgoal() # This is waypoint_1
             for t in range(train_config['max_episode_length']):
                 global_step += 1
+                # Capture FSM state BEFORE transition (this is the state we're in when taking action)
+                fsm_state_before = fsm.current_state
+                fsm_state_id_before = fsm.state_to_id.get(fsm_state_before, -1)
+                
                 with torch.no_grad():
                     s_torch = torch.from_numpy(s_nn).float().to(device).unsqueeze(0)
                     g_torch = torch.from_numpy(g).float().to(device).unsqueeze(0)
@@ -160,7 +182,9 @@ def objective(trial: optuna.trial.Trial) -> float:
                 fsm_state = fsm.transition(s_next_nn)
                 done = info['is_collision']
                 
-                buffer.add(s_nn, a_scaled, s_next_nn, g, r, done, info['h_star'], v_star)
+                # Store transition with FSM state that was active when action was taken
+                buffer.add(s_nn, a_scaled, s_next_nn, g, r, done, info['h_star'], v_star, 
+                          fsm_state=fsm_state_before, fsm_state_id=fsm_state_id_before)
                 s_nn = s_next_nn
                 
                 if len(buffer) > train_config['batch_size']:
@@ -191,8 +215,8 @@ def objective(trial: optuna.trial.Trial) -> float:
                         
                         b_s_next_pred = dynamics_net(b_s, b_a_mb_scaled)
                         
-                        loss_mb, _, _ = compute_actor_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config)
-                        loss_mf, _, _ = compute_actor_loss(b_s, b_g, b_s_next_real, cbf_net, clf_net, config)
+                        loss_mb, _, _ = compute_actor_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config, a_unscaled=b_a_mb_unscaled)
+                        loss_mf, _, _ = compute_actor_loss(b_s, b_g, b_s_next_real, cbf_net, clf_net, config, a_unscaled=b_a_mb_unscaled)
                         
                         lambda_mf = train_config['lambda_mf']
                         loss = (1.0 - lambda_mf) * loss_mb + lambda_mf * loss_mf
@@ -201,6 +225,8 @@ def objective(trial: optuna.trial.Trial) -> float:
                         for param in cbf_net.parameters(): param.requires_grad = False
                         for param in clf_net.parameters(): param.requires_grad = False
                         loss.backward()
+                        # Gradient clipping to prevent exploding gradients
+                        torch.nn.utils.clip_grad_norm_(policy_net.parameters(), max_norm=1.0)
                         policy_optim.step()
                         for param in cbf_net.parameters(): param.requires_grad = True
                         for param in clf_net.parameters(): param.requires_grad = True
@@ -213,6 +239,10 @@ def objective(trial: optuna.trial.Trial) -> float:
                 g = fsm.get_current_subgoal() # This is the final goal
                 for t in range(train_config['max_episode_length']):
                     global_step += 1
+                    # Capture FSM state BEFORE transition (this is the state we're in when taking action)
+                    fsm_state_before = fsm.current_state
+                    fsm_state_id_before = fsm.state_to_id.get(fsm_state_before, -1)
+                    
                     with torch.no_grad():
                         s_torch = torch.from_numpy(s_nn).float().to(device).unsqueeze(0)
                         g_torch = torch.from_numpy(g).float().to(device).unsqueeze(0)
@@ -231,7 +261,9 @@ def objective(trial: optuna.trial.Trial) -> float:
                     fsm_state = fsm.transition(s_next_nn)
                     done = info['is_collision'] or (fsm_state == FSM_STATE_GOAL)
                     
-                    buffer.add(s_nn, a_scaled, s_next_nn, g, r, done, info['h_star'], v_star)
+                    # Store transition with FSM state that was active when action was taken
+                    buffer.add(s_nn, a_scaled, s_next_nn, g, r, done, info['h_star'], v_star, 
+                              fsm_state=fsm_state_before, fsm_state_id=fsm_state_id_before)
                     s_nn = s_next_nn
                     
                     if len(buffer) > train_config['batch_size']:
@@ -262,8 +294,8 @@ def objective(trial: optuna.trial.Trial) -> float:
                             
                             b_s_next_pred = dynamics_net(b_s, b_a_mb_scaled)
                             
-                            loss_mb, _, _ = compute_actor_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config)
-                            loss_mf, _, _ = compute_actor_loss(b_s, b_g, b_s_next_real, cbf_net, clf_net, config)
+                            loss_mb, _, _ = compute_actor_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config, a_unscaled=b_a_mb_unscaled)
+                            loss_mf, _, _ = compute_actor_loss(b_s, b_g, b_s_next_real, cbf_net, clf_net, config, a_unscaled=b_a_mb_unscaled)
                             
                             lambda_mf = train_config['lambda_mf']
                             loss = (1.0 - lambda_mf) * loss_mb + lambda_mf * loss_mf
@@ -272,6 +304,8 @@ def objective(trial: optuna.trial.Trial) -> float:
                             for param in cbf_net.parameters(): param.requires_grad = False
                             for param in clf_net.parameters(): param.requires_grad = False
                             loss.backward()
+                            # Gradient clipping to prevent exploding gradients
+                            torch.nn.utils.clip_grad_norm_(policy_net.parameters(), max_norm=1.0)
                             policy_optim.step()
                             for param in cbf_net.parameters(): param.requires_grad = True
                             for param in clf_net.parameters(): param.requires_grad = True

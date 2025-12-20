@@ -233,7 +233,8 @@ class UnicyclePlannerCore:
     
     def is_clf_cbf_compatible(self, x: np.ndarray, q: np.ndarray, 
                              check_segment: bool = True, 
-                             num_checks: int = 5) -> bool:
+                             num_checks: int = 5,
+                             return_action: bool = False) -> Tuple[bool, Optional[np.ndarray]]:
         """
         Checks feasibility of the combined CLF-CBF QP.
         
@@ -241,10 +242,11 @@ class UnicyclePlannerCore:
             x: Current state [x, y, theta, v]
             q: Goal state (can be 2D [x, y] or 4D)
             check_segment: If True, check multiple points along the path
-            num_checks: Number of points to check along segment
+            num_checks: Number of points to check along segment (currently unused)
+            return_action: If True, also return the computed action
         
         Returns:
-            True if QP is feasible, False otherwise
+            (is_feasible, action) where action is None if return_action=False or infeasible
         """
         if check_segment:
             # Check multiple points along the segment from current state
@@ -253,15 +255,29 @@ class UnicyclePlannerCore:
             
             # If we have a parent state, check intermediate points
             # For now, just check the current state
+            action = None
             for state in states_to_check:
-                if not self._solve_qp_at_state(state, q):
-                    return False
-            return True
+                is_feasible, computed_action = self._solve_qp_at_state(state, q, return_action=return_action)
+                if not is_feasible:
+                    return False, None
+                if return_action and computed_action is not None:
+                    action = computed_action
+            return True, action
         else:
-            return self._solve_qp_at_state(x, q)
+            return self._solve_qp_at_state(x, q, return_action=return_action)
     
-    def _solve_qp_at_state(self, x: np.ndarray, q: np.ndarray) -> bool:
-        """Solves the QP at a single state."""
+    def _solve_qp_at_state(self, x: np.ndarray, q: np.ndarray, return_action: bool = False) -> Tuple[bool, Optional[np.ndarray]]:
+        """
+        Solves the QP at a single state.
+        
+        Args:
+            x: Current state
+            q: Goal state
+            return_action: If True, also return the computed action [a, omega]
+        
+        Returns:
+            (is_feasible, action) where action is None if return_action=False or infeasible
+        """
         try:
             # 1. Define optimization variable
             u = cp.Variable(2)  # u = [a, omega]
@@ -313,13 +329,17 @@ class UnicyclePlannerCore:
             
             # Feasibility check
             if prob.status in ["optimal", "optimal_inaccurate"]:
-                return True
+                if return_action:
+                    action = np.array([u.value[0], u.value[1]])  # [a, omega]
+                    return True, action
+                else:
+                    return True, None
             else:
-                return False
+                return False, None
                 
         except Exception:
             # If solver fails, assume infeasible
-            return False
+            return False, None
 
 
 class CCLFCBFRRT:
@@ -351,6 +371,9 @@ class CCLFCBFRRT:
         
         self.core = UnicyclePlannerCore(env, config)
         self.tree: List[RRTNode] = []
+        self.actions_trail = []  # List of [a, omega] actions for visualization
+        self.actions_by_node = {}  # Map node state to action for path reconstruction
+        self.path_actions = []  # Actions for the final planned path
         
     def _distance(self, x1: np.ndarray, x2: np.ndarray) -> float:
         """Compute weighted distance between two states."""
@@ -379,6 +402,16 @@ class CCLFCBFRRT:
         return nearest
     
     def _steer(self, x_near: np.ndarray, x_rand: np.ndarray) -> np.ndarray:
+        """
+        Steer from x_near toward x_rand with maximum step size.
+        This is an alias for CLF_steer for consistency.
+        
+        Returns:
+            New state x_new
+        """
+        return self.CLF_steer(x_near, x_rand)
+    
+    def CLF_steer(self, x_near: np.ndarray, x_rand: np.ndarray) -> np.ndarray:
         """
         Steer from x_near toward x_rand with maximum step size.
         
@@ -449,6 +482,8 @@ class CCLFCBFRRT:
         # Initialize tree with root node
         root = RRTNode(state=x_init.copy(), parent=None, cost=0.0)
         self.tree = [root]
+        self.actions_trail = []  # Reset actions trail
+        self.actions_by_node = {}  # Reset node-to-action mapping
         
         for _ in range(self.max_iter):
             # 1. Sample random state
@@ -469,13 +504,21 @@ class CCLFCBFRRT:
             
             print("  ✓ Collision check passed")
             
-            # 5. CLF-CBF Compatibility Check
-            is_compatible = self.core.is_clf_cbf_compatible(x_new, x_goal, check_segment=False)
+            # 5. CLF-CBF Compatibility Check (and get action)
+            is_compatible, action = self.core.is_clf_cbf_compatible(
+                x_new, x_goal, check_segment=False, return_action=True
+            )
             if not is_compatible:
                 print("  ✗ CLF-CBF compatibility check failed")
                 continue
             
             print("  ✓ CLF-CBF compatibility check passed")
+            
+            # Store action for this node (use state tuple as key for hashing)
+            state_key = tuple(x_new)
+            if action is not None:
+                self.actions_by_node[state_key] = action.copy()
+                self.actions_trail.append(action.copy())  # Also append to trail
             
             # 6. Add node to tree
             cost_new = x_near_node.cost + self._distance(x_near, x_new)
@@ -486,8 +529,10 @@ class CCLFCBFRRT:
             goal_pos = x_goal[:2] if len(x_goal) >= 2 else x_goal
             new_pos = x_new[:2]
             if np.linalg.norm(new_pos - goal_pos) < self.goal_tolerance:
-                # Reconstruct path
-                return self._reconstruct_path(new_node)
+                # Reconstruct path and compute actions for path segments
+                path = self._reconstruct_path(new_node)
+                self._compute_path_actions(path, x_goal)
+                return path
         
         # Planning failed
         return None
@@ -504,7 +549,67 @@ class CCLFCBFRRT:
         path.reverse()
         return path
     
+    def _compute_path_actions(self, path: List[np.ndarray], x_goal: np.ndarray):
+        """
+        Compute actions for each segment in the path and store them.
+        This ensures we have actions for the final planned path.
+        """
+        path_actions = []
+        for i in range(len(path) - 1):
+            x_current = path[i]
+            x_next = path[i + 1]
+            
+            # Try to get stored action, otherwise compute it
+            state_key = tuple(x_current)
+            if state_key in self.actions_by_node:
+                action = self.actions_by_node[state_key]
+            else:
+                # Compute action by solving QP
+                _, action = self.core._solve_qp_at_state(x_current, x_next, return_action=True)
+                if action is None:
+                    # Fallback: compute simple action from state difference
+                    # This is approximate but ensures we have something
+                    dt = self.core.dt
+                    v = x_current[3]
+                    theta = x_current[2]
+                    
+                    # Approximate: a = dv/dt, omega = dtheta/dt
+                    dv = x_next[3] - v
+                    dtheta = x_next[2] - x_current[2]
+                    # Normalize dtheta to [-pi, pi]
+                    while dtheta > np.pi:
+                        dtheta -= 2 * np.pi
+                    while dtheta < -np.pi:
+                        dtheta += 2 * np.pi
+                    
+                    a = dv / dt if dt > 0 else 0.0
+                    omega = dtheta / dt if dt > 0 else 0.0
+                    
+                    # Clip to limits
+                    a = np.clip(a, -self.core.a_max, self.core.a_max)
+                    omega = np.clip(omega, -self.core.omega_max, self.core.omega_max)
+                    action = np.array([a, omega])
+            
+            path_actions.append(action)
+        
+        # Store path actions (these are the actions for the final planned path)
+        self.path_actions = path_actions
+    
     def get_tree(self) -> List[RRTNode]:
         """Get the current RRT tree."""
         return self.tree
+    
+    def get_actions(self) -> List[np.ndarray]:
+        """
+        Get all actions computed during planning.
+        
+        Returns:
+            List of [a, omega] actions. If path was successfully planned,
+            returns path_actions (actions for the final path). Otherwise,
+            returns actions_trail (all actions computed during tree building).
+        """
+        if hasattr(self, 'path_actions') and self.path_actions:
+            return self.path_actions
+        else:
+            return self.actions_trail
 

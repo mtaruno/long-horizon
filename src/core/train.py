@@ -101,6 +101,10 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
             
             g = fsm.get_current_subgoal()
             
+            # Capture FSM state BEFORE transition (this is the state we're in when taking action)
+            fsm_state_before = fsm.current_state
+            fsm_state_id_before = fsm.state_to_id.get(fsm_state_before, -1)
+            
             with torch.no_grad():
                 s_torch = torch.from_numpy(s).float().to(device).unsqueeze(0)
                 g_torch = torch.from_numpy(g).float().to(device).unsqueeze(0)
@@ -121,7 +125,9 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
             fsm_state = fsm.transition(s_next)
             done = info['is_collision'] or (fsm_state == FSMAutomaton.FSM_STATE_GOAL)
             
-            buffer.add(s, a, s_next, g, r, done, info['h_star'], v_star)
+            # Store transition with FSM state that was active when action was taken
+            buffer.add(s, a, s_next, g, r, done, info['h_star'], v_star, 
+                      fsm_state=fsm_state_before, fsm_state_id=fsm_state_id_before)
             s = s_next
             
             if len(buffer) > train_config['batch_size']:
@@ -173,8 +179,10 @@ def run_training(config: dict, device: torch.device, use_tqdm: bool = True) -> f
                     policy_optim.zero_grad()
                     for param in cbf_net.parameters(): param.requires_grad = False
                     for param in clf_net.parameters(): param.requires_grad = False
-                    loss, metrics = policy_net.compute_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config)
+                    loss, metrics = policy_net.compute_loss(b_s, b_g, b_s_next_pred, cbf_net, clf_net, config, a_unscaled=b_a_unscaled)
                     loss.backward()
+                    # Gradient clipping to prevent exploding gradients
+                    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), max_norm=1.0)
                     policy_optim.step()
                     for param in cbf_net.parameters(): param.requires_grad = True
                     for param in clf_net.parameters(): param.requires_grad = True

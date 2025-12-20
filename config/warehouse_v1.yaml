@@ -71,6 +71,7 @@ train:
   # Loss Weights (Placeholders for Optuna)
   lambda_cbf: 1000.0
   lambda_mf: 0.5
+  lambda_action: 0.1  # Action regularization weight (prevents tanh saturation)
   
   # CBF Loss (Eq 5)
   cbf_alpha: 0.1

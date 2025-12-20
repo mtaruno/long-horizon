@@ -2,7 +2,16 @@
 
 
 
-This is a modular framework using Pytorch that enables long-horizon navigation in a warehouse environment using an LTL-to-FSM planner combined with CBF/CLF-guided policy learning. The paper is in progress of being written and will be linked here soon. Ultimately, this work will be tested in a Turtlebot and we will show that it is able to consider longer-horizon situations such as managing the action space (linear acceleration and velocity) such that 
+
+
+<!-- TODO: Show the TurtleBot Demo -->
+
+## TLDR:
+Problem: Long-horizon robotic navigation in cluttered environments is challenging due to the need to simultaneously ensure safety, feasibility, and temporal correctness over extended horizons. Classical planners (e.g., RRT) reason geometrically but ignore system dynamics and uncertainty, while reinforcement learning methods struggle with sparse rewards, safety violations, and poor generalization over long-horizon tasks.
+
+Our Approach: We propose a modular long-horizon planning and control framework that combines high-level temporal planning with low-level safe and feasible policy learning. A Linear Temporal Logic (LTL) specification is compiled into a Finite State Machine (FSM) that decomposes the task into subgoals. A goal-conditioned neural policy is trained using both model-based and model-free signals, while learned Control Barrier Functions (CBFs) and Control Lyapunov Functions (CLFs) provide safety and progress certificates. During planning, we prune FSM transitions using these learned certificates, retaining only transitions that are predicted to be safe and feasible under the current policy and learned dynamics. We show that this works in a TurtleBot.
+
+---
 
 ## Overview
 Project structure:
